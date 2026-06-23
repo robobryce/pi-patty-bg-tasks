@@ -1,146 +1,128 @@
 # pi-patty-bg-tasks
 
-Background-task support for the
-[pi](https://github.com/earendil-works/pi-mono) coding agent. Run long
-commands without blocking the agent, batch spawn helpers, and inspect
-output across all running jobs — all without leaving the conversation.
+[한국어 README](README.ko.md)
 
-## What's in the box
+Background-task extension for the [pi](https://github.com/earendil-works/pi-mono) coding agent. Run long commands without blocking the conversation, spawn detached agents, and manage everything through a unified jobs interface.
 
-- **`bash` (override)** — every bash command can run, but commands
-  longer than 15 s are automatically moved to the background and the
-  agent is asked whether to keep or kill them. Press **Ctrl+B** to
-  manually background a running command.
-- **`bash_bg`** — start a command in the background from the get-go.
-  - New: `--name <label>` for easy tracking in `jobs list`.
-  - New: `timeout` (seconds) for an optional per-job auto-background
-    timeout that reuses the bash tool's `bg-timeout` flow.
-- **`jobs`** — list, read output from, kill, or attach to background
-  jobs.
-  - New: `search <regex>` — search across every job's log with line
-    references.
-  - New: `cleanup` — purge terminal jobs from in-memory state and
-    reclaim their log files.
-  - New: `stats` — total started, by-status breakdown, average
-    duration, total CPU time.
-- **`job_decide`** — keep, kill, or check a job that the 15-second
-  timer backgrounded.
-- **`agent_bg`** — spawn a separate `pi -p` process in the background
-  with a continuity prompt derived from your current session.
-- **Pill bar** in the status line shows every running job with
-  command preview + elapsed time.
-- **Disk-based output** — every job writes stdout+stderr to
-  `/tmp/pi-bg-<jobId>.log`. No in-memory buffering, no memory pressure
-  on long-running jobs.
-- **Tmux backend** — when tmux is on `PATH` and you're in a git repo,
-  commands run inside tmux windows. This eliminates the
-  foreground/background output race window the plain `bash` tool has.
-- **Stall watchdog** — detects interactive prompts (`(y/n)`,
-  `Press any key`, `Continue?`) after 45 s of stagnant output. Kills
-  the job if its log file exceeds 100 MiB.
-- **Session persistence** — running jobs are written to the session on
-  shutdown and reattached on next launch.
+## Features
 
-## Install
+### Tools
 
-```bash
-pi install npm:pi-patty-bg-tasks
-```
+| Tool | Description |
+|------|-------------|
+| **`bash`** (override) | Every bash command runs normally, but commands exceeding 15 s are auto-backgrounded. The agent is prompted to keep or kill them via `job_decide`. Press **Ctrl+B** to manually background at any time. |
+| **`bash_bg`** | Start a command in the background immediately. Supports `--name <label>` for human-readable job tracking and an optional `timeout` (seconds) that triggers the same bg-timeout flow. |
+| **`jobs`** | List, read output, kill, or attach to background jobs. Includes `search <regex>`, `cleanup`, and `stats` actions. |
+| **`job_decide`** | Keep, kill, or check a job that was auto-backgrounded by the 15 s timer. |
+| **`agent_bg`** | Spawn a separate `pi -p` process in the background with a continuity prompt derived from your current session. |
 
-Or add to `~/.pi/agent/settings.json`:
-
-```json
-{
-    "packages": ["npm:pi-patty-bg-tasks"]
-}
-```
-
-## Keyboard shortcuts
+### Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+B` | Background a running bash/agent, or resume a paused agent |
-| `Ctrl+J` / `Shift+Down` | Open the background-task list |
-| `Ctrl+X` | Kill the most recently started running job |
+| **Ctrl+B** | Background the current foreground process, or resume a paused agent |
+| **Ctrl+J** / **Shift+Down** | Open the task list UI |
+| **Ctrl+X** | Kill the most recently started running job |
 
-## Commands
+### Slash Commands
 
-| Command | Action |
-|---------|--------|
-| `/bg` | Same as `Ctrl+B` |
+| Command | Description |
+|---------|-------------|
+| `/bg` | Same as Ctrl+B |
 | `/fg [job-id] [--snapshot]` | Attach to a job's output (default: most recent running) |
-| `/jobs` | Open the background-task list |
+| `/jobs` | Open the interactive task manager |
 
-## How the 15-second auto-background works
+### Status Bar
 
-The bash tool races the child command against three outcomes:
-
-1. **Quick completion** (within 2 s) — return the output directly, no
-   backgrounding ceremony.
-2. **Auto-background** (at 15 s) — mark the job as backgrounded, send
-   a `bg-timeout` follow-up to the agent, and require a `job_decide`
-   call to keep or kill it.
-3. **Manual background** (any time via Ctrl+B) — same as above but
-   without the 15-s wait.
-
-In non-interactive mode (`-p`, `--print`, non-TTY stdin), the timer
-does nothing — there's no agent loop to answer `job_decide`, so the
-command runs to completion.
-
-## New `bash_bg` features (v0.2)
-
-```ts
-// Label a job for tracking
-bash_bg({ command: "npm run build", name: "build" })
-
-// Per-job timeout (seconds) — at expiry, the same bg-timeout flow fires
-bash_bg({ command: "sleep 300 && ./do-stuff.sh", timeout: 60 })
-```
-
-## New `jobs` actions (v0.2)
-
-```ts
-// Regex search across every running + recent terminal job's log
-jobs({ action: "search", pattern: "ERROR.*timeout" })
-
-// Purge terminal jobs (frees log files)
-jobs({ action: "cleanup" })
-
-// Aggregate stats
-jobs({ action: "stats" })
-// Total started:   12
-// Currently running: 2
-// Completed:        8
-// Failed:           2
-// Killed:           0
-// Average duration: 4m12s
-// Total CPU time:   50m24s
-```
+A live pill-bar widget shows every running job with its duration, command preview, and background/foreground state. Completed and failed counts appear in the status line.
 
 ## Architecture
 
 ```
 src/
-  index.ts              진입점. 툴/단축키/커맨드 등록 + 세션 라이프사이클
-  state.ts              BackgroundRegistry — 공유 가변 상태
-  types.ts              Job, ForegroundSlot, TmuxContext, UiContext, 상수
-  format.ts             formatDuration, statusLabel, formatJobLine, truncateTail
-  proc.ts               spawnDetached, killProcessTree, processExists, tmux spawn/session
-  registry.ts           잡 CRUD: add/forget/find, renderSidebar, getStats, cleanupTerminal
-  lifecycle.ts          watchProgress, watchStalls, notifyFinished, scheduleTimeout,
-                        markTerminal, buildTimeoutNotice, createCompletionPromise,
-                        reviveAndValidate, cleanupStaleLogs, cleanupStaleTmuxArtifacts
-  ui.ts                 showTaskDetail, showTaskList — Ctrl+J TUI
-  shortcuts.ts          Ctrl+B, Ctrl+J/Shift+Down, Ctrl+X 등록
-  commands.ts           /bg, /fg, /jobs 등록
-  tools/
-    bash.ts             bash 툴 오버라이드 + runDirect/runViaTmux
-    bash-bg.ts          bash_bg 툴 + spawnViaTmux + per-job timeout
-    jobs.ts             jobs 툴 + search/cleanup/stats 액션
-    job-decide.ts       job_decide 툴 (keep/kill/check)
-    agent-bg.ts         agent_bg 툴 + 컨텍스트 추출
+├── index.ts          # Extension entry point — tool & event registration
+├── types.ts          # Domain types (Job, ForegroundSlot, constants)
+├── state.ts          # BackgroundRegistry — in-memory state store
+├── format.ts         # Formatting helpers (duration, status labels, textBlock)
+├── proc.ts           # Process primitives (spawn, kill, tmux, sentinel polling)
+├── registry.ts       # Job CRUD, sidebar rendering, stats
+├── lifecycle.ts      # State transitions, completion protocol, timeout, session revival
+├── monitoring.ts     # Progress polling + stall/prompt detection
+├── ui.ts             # TUI task list and job detail views
+├── shortcuts.ts      # Keyboard shortcut handlers
+├── commands.ts       # Slash command handlers
+└── tools/
+    ├── bash.ts       # bash override (foreground race → auto-background)
+    ├── bash-bg.ts    # bash_bg (immediate background)
+    ├── jobs.ts       # jobs (list/output/kill/attach/search/cleanup/stats)
+    ├── job-decide.ts # job_decide (keep/kill/check)
+    └── agent-bg.ts   # agent_bg (detached pi -p)
 ```
+
+### Key Design Decisions
+
+- **tmux-first with direct-spawn fallback** — When tmux is available, commands run in tmux windows with sentinel-file-based completion detection. Falls back to detached child processes when tmux is not on PATH.
+- **Unified completion protocol** — `completeJob()` in lifecycle.ts handles the mark-terminal → notify → forget → sidebar-update sequence for all tools.
+- **Polling abstraction** — `pollExitSentinel()` in proc.ts provides a shared, timeout-guarded sentinel file poller used by both bash and bash_bg tmux backends.
+- **Session persistence** — Job state is serialized on session shutdown and revived on restart. Stale jobs (dead PIDs) are detected and cleaned up automatically.
+
+## Installation
+
+```bash
+pi package install pi-patty-bg-tasks
+```
+
+Or add to your project's pi configuration:
+
+```json
+{
+  "pi": {
+    "extensions": ["pi-patty-bg-tasks"]
+  }
+}
+```
+
+## Development
+
+```bash
+git clone https://github.com/patrickrho-patty/pi-patty-bg-tasks.git
+cd pi-patty-bg-tasks
+pnpm install
+
+# Type-check
+pnpm check
+
+# Run tests
+pnpm test
+```
+
+### Requirements
+
+- Node.js ≥ 22 (uses `--experimental-strip-types`)
+- pnpm ≥ 10
+- tmux (optional, recommended — enables tmux backend)
+
+## Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. **Fork** the repository
+2. **Create a branch** for your feature or fix (`git checkout -b feat/my-feature`)
+3. **Make your changes** — ensure `pnpm check` and `pnpm test` pass
+4. **Commit** with a [conventional commit](https://www.conventionalcommits.org/) message
+5. **Open a Pull Request** against `main`
+
+### Guidelines
+
+- All code comments are written in Korean; identifiers and user-facing strings stay in English.
+- Run the full check + test suite before submitting.
+- New features should include tests in `src/__tests__/`.
+- Keep PRs focused — one feature or fix per PR.
 
 ## License
 
-MIT
+[MIT](LICENSE) © Patty
+
+## Author
+
+Developed by **Patty** ([@patrickrho-patty](https://github.com/patrickrho-patty))
