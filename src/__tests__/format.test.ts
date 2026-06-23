@@ -57,7 +57,7 @@ void describe("statusLabel", () => {
     void it("running + backgrounded", () => {
         assert.equal(
             statusLabel(makeJob({ status: "running", isBackgrounded: true })),
-            "◐ running (0s)"
+            "▶ running (0s)"
         );
     });
     void it("running + foreground", () => {
@@ -67,13 +67,13 @@ void describe("statusLabel", () => {
         );
     });
     void it("completed", () => {
-        assert.equal(statusLabel(makeJob({ status: "completed" })), "✅ completed");
+        assert.equal(statusLabel(makeJob({ status: "completed" })), "✓ completed");
     });
     void it("failed", () => {
-        assert.equal(statusLabel(makeJob({ status: "failed" })), "❌ failed");
+        assert.equal(statusLabel(makeJob({ status: "failed" })), "✗ failed");
     });
     void it("killed", () => {
-        assert.equal(statusLabel(makeJob({ status: "killed" })), "🛑 killed");
+        assert.equal(statusLabel(makeJob({ status: "killed" })), "✗ killed");
     });
 });
 
@@ -89,7 +89,7 @@ void describe("formatJobLine", () => {
             toolCallId: "tc-1",
             isBackgrounded: true,
         };
-        assert.match(formatJobLine(job), /^job-1-1: sleep 60 - ◐ running \(5s\) \(5s\)$/);
+        assert.match(formatJobLine(job), /^job-1-1: sleep 60 - ▶ running \(5s\) \(5s\)$/);
     });
     void it("이름 있는 잡은 이름 우선", () => {
         const job: Job = {

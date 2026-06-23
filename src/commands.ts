@@ -30,7 +30,7 @@ export function registerCommands(
                 if (slot) {
                     slot.requestPause();
                     renderSidebar(reg, ctx);
-                    ctx.ui.notify("◐ Backgrounded — continuing.", "info");
+                    ctx.ui.notify("▶ Backgrounded — continuing.", "info");
                     pi.sendMessage(
                         {
                             customType: EVENT.background,

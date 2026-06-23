@@ -18,13 +18,13 @@ export function statusLabel(job: Job, duration?: string): string {
     const dur = duration ?? formatDuration(Date.now() - job.startTime);
     switch (job.status) {
         case "running":
-            return job.isBackgrounded ? `◐ running (${dur})` : `▶ running (${dur})`;
+            return job.isBackgrounded ? `▶ running (${dur})` : `▶ running (${dur})`;
         case "completed":
-            return "✅ completed";
+            return "✓ completed";
         case "failed":
-            return "❌ failed";
+            return "✗ failed";
         case "killed":
-            return "🛑 killed";
+            return "✗ killed";
     }
 }
 

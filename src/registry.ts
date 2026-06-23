@@ -119,7 +119,7 @@ export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
         if (job.status !== "running") continue;
         runningCount++;
         const duration = formatDuration(Date.now() - job.startTime);
-        const icon = job.isBackgrounded ? "◐" : "▶";
+        const icon = "▶";
         const label = job.name ? `${job.name}` : job.id;
         pills.push(
             `${icon} ${label}: ${job.command.slice(0, PREVIEW_CHARS.sidebar)} (${duration})`
@@ -139,7 +139,7 @@ export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
     if (reg.failedCount > 0) parts.push(`${reg.failedCount} failed`);
     ctx.ui.setStatus(
         "background-jobs",
-        ctx.ui.theme.fg("accent", `◐ ${parts.join(", ")}`)
+        ctx.ui.theme.fg("accent", `▶ ${parts.join(", ")}`)
     );
 }
 

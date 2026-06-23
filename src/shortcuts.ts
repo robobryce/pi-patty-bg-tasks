@@ -54,7 +54,7 @@ async function handleCtrlB(
         if (slot) {
             slot.requestPause();
             renderSidebar(reg, ctx);
-            ctx.ui.notify("◐ Backgrounded — continuing.", "info");
+            ctx.ui.notify("▶ Backgrounded — continuing.", "info");
             // 에이전트에게 백그라운드 사실을 알린다 — 에이전트가 즉시 다음 작업을 계속할 수 있도록.
             pi.sendMessage(
                 {

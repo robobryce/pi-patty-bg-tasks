@@ -103,7 +103,7 @@ export async function showTaskList(
     for (const job of runningJobs) {
         const duration = formatDuration(Date.now() - job.startTime);
         const label = job.name ? `${job.name} (${job.id})` : job.id;
-        items.push(`◐ ${label}: ${job.command.slice(0, PREVIEW_CHARS.taskList)} · ${duration}`);
+        items.push(`▶ ${label}: ${job.command.slice(0, PREVIEW_CHARS.taskList)} · ${duration}`);
     }
     for (const job of finishedJobs) {
         const label = job.name ? `${job.name} (${job.id})` : job.id;
@@ -127,13 +127,13 @@ export async function showTaskList(
 function iconFor(job: Job): string {
     switch (job.status) {
         case "running":
-            return "◐";
+            return "▶";
         case "completed":
-            return "✅";
+            return "✓";
         case "failed":
-            return "❌";
+            return "✗";
         case "killed":
-            return "🛑";
+            return "✗";
     }
 }
 
