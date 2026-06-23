@@ -100,9 +100,6 @@ export async function showTaskList(
     const finishedJobs = allJobs.filter((j) => j.status !== "running");
 
     const items: string[] = [];
-    if (reg.agentPaused) {
-        items.push("◐ agent · paused · Ctrl+Shift+B to resume");
-    }
     for (const job of runningJobs) {
         const duration = formatDuration(Date.now() - job.startTime);
         const label = job.name ? `${job.name} (${job.id})` : job.id;
@@ -121,23 +118,10 @@ export async function showTaskList(
     const choice = await ctx.ui.select("Background Tasks", items);
     if (choice === undefined) return;
 
-    if (reg.agentPaused && choice === items[0]) {
-        resumeAgent(reg, ctx);
-        return;
-    }
-
     const selected = [...runningJobs, ...finishedJobs].find((j) =>
         choice?.includes(j.name ? `${j.name} (${j.id})` : j.id)
     );
     if (selected) await showTaskDetail(selected, reg, ctx);
-}
-
-/** Ctrl+Shift+B의 두 번째 동작: agentPaused 해제 + 통지. */
-function resumeAgent(reg: BackgroundRegistry, ctx: UiContext): void {
-    reg.agentPaused = false;
-    ctx.ui.setStatus("agent-paused", undefined);
-    renderSidebar(reg, ctx);
-    ctx.ui.notify("▶ Resumed", "info");
 }
 
 function iconFor(job: Job): string {

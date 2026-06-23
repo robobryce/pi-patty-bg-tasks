@@ -133,7 +133,6 @@ void describe("BackgroundRegistry 기본", () => {
         assert.ok(reg.foreground instanceof Map);
         assert.equal(reg.counter, 0);
         assert.equal(reg.activeToolCallId, null);
-        assert.equal(reg.agentPaused, false);
         assert.equal(reg.totalStarted, 0);
     });
 });

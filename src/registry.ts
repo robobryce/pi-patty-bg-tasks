@@ -115,8 +115,6 @@ export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
     const pills: string[] = [];
     let runningCount = 0;
 
-    if (reg.agentPaused) pills.push("◐ agent (paused)");
-
     for (const job of reg.jobs.values()) {
         if (job.status !== "running") continue;
         runningCount++;

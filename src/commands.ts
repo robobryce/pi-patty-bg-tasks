@@ -25,34 +25,12 @@ export function registerCommands(
         description: "백그라운드 bash/agent, 또는 일시정지된 agent 재개",
         handler: async (_args, ctx) => {
             // 단순 alias: Ctrl+Shift+B 핸들러 호출.
-            // (단축키 핸들러는 ctx를 다르게 받기 때문에 직접 호출하지 않고
-            //  상태만 토글한다.)
-            if (reg.agentPaused) {
-                reg.agentPaused = false;
-                ctx.ui.setStatus("agent-paused", undefined);
-                renderSidebar(reg, ctx);
-                ctx.ui.notify("▶ Resumed", "info");
-                pi.sendMessage(
-                    {
-                        customType: EVENT.agentResume,
-                        content: "Continuing where you left off.",
-                        display: true,
-                    },
-                    { deliverAs: "followUp", triggerTurn: true }
-                );
-                return;
-            }
             if (reg.activeToolCallId) {
                 const slot = reg.foreground.get(reg.activeToolCallId);
                 if (slot) {
                     slot.requestPause();
-                    reg.agentPaused = true;
-                    ctx.ui.setStatus(
-                        "agent-paused",
-                        ctx.ui.theme.fg("warning", "⏸ Paused")
-                    );
                     renderSidebar(reg, ctx);
-                    ctx.ui.notify("⏸ Backgrounded. Ctrl+Shift+B to resume.", "info");
+                    ctx.ui.notify("◐ Backgrounded — continuing.", "info");
                     return;
                 }
             }

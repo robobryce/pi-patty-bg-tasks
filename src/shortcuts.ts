@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BackgroundRegistry } from "./state.ts";
-import { EVENT } from "./types.ts";
+
 import { markKilledSilently, terminateJob } from "./lifecycle.ts";
 import { renderSidebar } from "./registry.ts";
 import { showTaskList } from "./ui.ts";
@@ -41,49 +41,25 @@ export function registerShortcuts(
 
 /**
  * Ctrl+Shift+B 핸들러:
- *   - agentPaused면 재개한다.
  *   - 포그라운드 bash가 진행 중이면 pausePromise를 해소해 백그라운딩.
- *   - 둘 다 아니면 알림만 띄운다 (사용자에게 무의미한 상태 전이를 알리지 않음).
+ *   - 에이전트는 계속 작업한다 (pause 없음).
  */
 async function handleCtrlB(
     reg: BackgroundRegistry,
     pi: ExtensionAPI,
     ctx: Parameters<NonNullable<Parameters<ExtensionAPI["registerShortcut"]>[1]["handler"]>>[0]
 ): Promise<void> {
-    if (reg.agentPaused) {
-        reg.agentPaused = false;
-        ctx.ui.setStatus("agent-paused", undefined);
-        renderSidebar(reg, ctx);
-        ctx.ui.notify("▶ Resumed", "info");
-        pi.sendMessage(
-            {
-                customType: EVENT.agentResume,
-                content: "Continuing where you left off.",
-                display: true,
-            },
-            { deliverAs: "followUp", triggerTurn: true }
-        );
-        return;
-    }
-
-    let didBackground = false;
     if (reg.activeToolCallId) {
         const slot = reg.foreground.get(reg.activeToolCallId);
         if (slot) {
             slot.requestPause();
-            didBackground = true;
+            renderSidebar(reg, ctx);
+            ctx.ui.notify("◐ Backgrounded — continuing.", "info");
+            return;
         }
     }
 
-    if (!didBackground) {
-        ctx.ui.notify("No running process to background.", "warning");
-        return;
-    }
-
-    reg.agentPaused = true;
-    ctx.ui.setStatus("agent-paused", ctx.ui.theme.fg("warning", "⏸ Paused"));
-    renderSidebar(reg, ctx);
-    ctx.ui.notify("⏸ Backgrounded. Ctrl+Shift+B to resume.", "info");
+    ctx.ui.notify("No running process to background.", "warning");
 }
 
 /** Ctrl+Shift+X: 가장 최근 실행 중인 잡 종료. */

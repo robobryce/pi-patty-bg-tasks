@@ -65,11 +65,6 @@ export default function (pi: ExtensionAPI): void {
 
     // ── tool_call 핸들러 ──────────────────────────────────────────
     pi.on("tool_call", async (event): Promise<ToolCallEventResult> => {
-        // agentPaused 상태면 모든 툴 호출을 빈 사유로 차단해 깨끗하게 양보한다.
-        if (reg.agentPaused) {
-            return { block: true, reason: "" };
-        }
-
         // 타임아웃된 백그라운드 잡이 결정 대기를 강제한다.
         if (
             reg.pendingDecisionJobId !== undefined &&
