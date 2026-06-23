@@ -61,7 +61,7 @@ Or add to `~/.pi/agent/settings.json`:
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+Shift+B` | Background a running bash/agent, or resume a paused agent |
+| `Ctrl+Shift+B` | 포그라운드 프로세스를 백그라운드로 전환 — 에이전트는 즉시 계속 작업 (Claude Code의 Ctrl+B 동작과 동일) |
 | `Ctrl+Shift+J` / `Shift+Down` | Open the background-task list |
 | `Ctrl+Shift+X` | Kill the most recently started running job |
 
@@ -69,7 +69,7 @@ Or add to `~/.pi/agent/settings.json`:
 
 | Command | Action |
 |---------|--------|
-| `/bg` | Same as `Ctrl+Shift+B` |
+| `/bg` | Ctrl+Shift+B와 동일 — 백그라운드 후 계속 |
 | `/fg [job-id] [--snapshot]` | Attach to a job's output (default: most recent running) |
 | `/jobs` | Open the background-task list |
 
