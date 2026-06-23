@@ -71,58 +71,6 @@ export function findJob(reg: BackgroundRegistry, jobId: string): Job | undefined
     );
 }
 
-/**
- * Promote a foreground-running tool invocation into a background job.
- * Wires up the stall watchdog and the proc.on("close") completion path.
- * `onTerminal` is invoked exactly once when the process exits (or fails).
- */
-export function adoptRunningJob(
-    reg: BackgroundRegistry,
-    args: {
-        proc: import("node:child_process").ChildProcess;
-        command: string;
-        logPath: string;
-        toolCallId: string;
-        /**
-         * Stall-watchdog cancel function from `lifecycle.ts`. Caller owns
-         * the lifecycle — must invoke on terminal state.
-         */
-        cancelStall: () => void;
-        /** Terminal handler — receives exit code (null on spawn error). */
-        onTerminal: (code: number | null) => void;
-    }
-): Job {
-    const id = nextJobId(reg);
-    const job: Job = {
-        id,
-        command: args.command,
-        pid: args.proc.pid!,
-        startTime: Date.now(),
-        status: "running",
-        logPath: args.logPath,
-        proc: args.proc,
-        toolCallId: args.toolCallId,
-        isBackgrounded: true,
-    };
-
-    reg.jobs.set(id, job);
-    reg.totalStarted++;
-    reg.activeToolCallId = null;
-
-    args.proc.on("close", (code) => {
-        args.cancelStall();
-        if (job.status !== "running") return;
-        args.onTerminal(code);
-    });
-    args.proc.on("error", () => {
-        args.cancelStall();
-        if (job.status !== "running") return;
-        args.onTerminal(1);
-    });
-
-    return job;
-}
-
 /** Purge all terminal jobs from in-memory state and delete their log files. */
 export function cleanupTerminal(reg: BackgroundRegistry): {
     purged: number;
