@@ -109,6 +109,7 @@ export const EVENT = {
     stall: "bg-stall",
     timeout: "bg-timeout",
     attach: "bg-attach",
+    background: "bg-manual",
     agentResume: "agent-resume",
     jobFinished: "job-finished",
 } as const;

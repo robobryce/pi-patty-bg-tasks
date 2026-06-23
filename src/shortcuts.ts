@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BackgroundRegistry } from "./state.ts";
-
+import { EVENT } from "./types.ts";
 import { markKilledSilently, terminateJob } from "./lifecycle.ts";
 import { renderSidebar } from "./registry.ts";
 import { showTaskList } from "./ui.ts";
@@ -55,6 +55,19 @@ async function handleCtrlB(
             slot.requestPause();
             renderSidebar(reg, ctx);
             ctx.ui.notify("◐ Backgrounded — continuing.", "info");
+            // 에이전트에게 백그라운드 사실을 알린다 — 에이전트가 즉시 다음 작업을 계속할 수 있도록.
+            pi.sendMessage(
+                {
+                    customType: EVENT.background,
+                    content:
+                        `Command was manually backgrounded by user. ` +
+                        `It is still running and output is being captured. ` +
+                        `You can continue working on other tasks. ` +
+                        `Use the jobs tool to check on it later.`,
+                    display: true,
+                },
+                { deliverAs: "followUp", triggerTurn: true }
+            );
             return;
         }
     }

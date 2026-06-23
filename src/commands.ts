@@ -31,6 +31,18 @@ export function registerCommands(
                     slot.requestPause();
                     renderSidebar(reg, ctx);
                     ctx.ui.notify("◐ Backgrounded — continuing.", "info");
+                    pi.sendMessage(
+                        {
+                            customType: EVENT.background,
+                            content:
+                                `Command was manually backgrounded by user. ` +
+                                `It is still running and output is being captured. ` +
+                                `You can continue working on other tasks. ` +
+                                `Use the jobs tool to check on it later.`,
+                            display: true,
+                        },
+                        { deliverAs: "followUp", triggerTurn: true }
+                    );
                     return;
                 }
             }
