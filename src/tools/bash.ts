@@ -64,14 +64,12 @@ import {
     watchProgress,
     watchStalls,
 } from "../lifecycle.ts";
+import { textBlock, truncateTail } from "../format.ts";
 
 /** UI 컨텍스트 + cwd만으로 충분한 축소 인터페이스. */
 type BashCtx = UiContext & { cwd: string };
 
-/** 텍스트 콘텐츠 블록 빌더. */
-function textBlock(s: string) {
-    return { type: "text" as const, text: s };
-}
+
 
 /** `bash` 툴을 등록한다. */
 export function registerBashTool(
@@ -451,7 +449,6 @@ async function runViaTmux(
                 cancelStall();
                 if (job.status !== "running") return;
                 markTerminal(job, statusFromExit(code), code);
-                const { findJob, renderSidebar } = require("../registry.ts") as typeof import("../registry.ts");
                 const finished = findJob(reg, job.id);
                 if (finished) {
                     notifyFinished({ job: finished, reg, pi, ctx });
@@ -593,8 +590,7 @@ function gitRootOrThrow(cwd: string): string {
 async function readLogTailAsync(logPath: string): Promise<string> {
     try {
         const content = await readFile(logPath, "utf-8");
-        if (content.length <= OUTPUT_PREVIEW_CHARS) return content;
-        return `...[truncated, showing last ${OUTPUT_PREVIEW_CHARS} chars]\n${content.slice(-OUTPUT_PREVIEW_CHARS)}`;
+        return truncateTail(content, OUTPUT_PREVIEW_CHARS);
     } catch {
         return "(no output)";
     }

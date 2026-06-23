@@ -6,8 +6,8 @@
  * pill bar (`renderSidebar`) and aggregates stats (`getStats`).
  */
 
-import { statSync, unlinkSync, readFileSync } from "node:fs";
-import { formatDuration, statusLabel, formatJobLine } from "./format.ts";
+import { closeSync, openSync, readSync, statSync, unlinkSync, readFileSync } from "node:fs";
+import { formatDuration, statusLabel, formatJobLine, truncateTail } from "./format.ts";
 import {
     OUTPUT_PREVIEW_CHARS,
     PREVIEW_CHARS,
@@ -105,29 +105,22 @@ export function adoptRunningJob(
         isBackgrounded: true,
     };
 
-    // 포그라운드 등록이 이미 있으면 재사용 — 다운스트림 호출자가 동일한
-    // 객체 식별성을 볼 수 있도록.
-    const existing = reg.jobs.get(id);
-    const stored: Job = existing ?? (reg.jobs.set(id, job), job);
-    stored.isBackgrounded = true;
-    stored.proc = args.proc;
-    stored.logPath = args.logPath;
-    stored.toolCallId = args.toolCallId;
+    reg.jobs.set(id, job);
     reg.totalStarted++;
     reg.activeToolCallId = null;
 
     args.proc.on("close", (code) => {
         args.cancelStall();
-        if (stored.status !== "running") return;
+        if (job.status !== "running") return;
         args.onTerminal(code);
     });
     args.proc.on("error", () => {
         args.cancelStall();
-        if (stored.status !== "running") return;
+        if (job.status !== "running") return;
         args.onTerminal(1);
     });
 
-    return stored;
+    return job;
 }
 
 /** Purge all terminal jobs from in-memory state and delete their log files. */
@@ -137,14 +130,16 @@ export function cleanupTerminal(reg: BackgroundRegistry): {
 } {
     let purged = 0;
     let bytes = 0;
-    const toRemove: Job[] = [];
-    for (const job of reg.jobs.values()) {
-        if (job.status !== "running") toRemove.push(job);
+    const idsToRemove: string[] = [];
+    for (const [id, job] of reg.jobs.entries()) {
+        if (job.status !== "running") {
+            idsToRemove.push(id);
+            bytes += deleteLogFile(job.logPath);
+            purged++;
+        }
     }
-    for (const job of toRemove) {
-        bytes += deleteLogFile(job.logPath);
-        reg.jobs.delete(job.id);
-        purged++;
+    for (const id of idsToRemove) {
+        reg.jobs.delete(id);
     }
     // recent-terminal 링도 종료된 잡이므로 함께 정리.
     purged += reg.recentTerminal.length;
@@ -241,9 +236,6 @@ export function getStats(reg: BackgroundRegistry): JobStats {
 // ─── 내부 헬퍼 ────────────────────────────────────────────────────────────────────────────
 
 function terminalDurationMs(job: Job): number {
-    if (typeof job.exitCode !== "number" || job.exitCode < 0) {
-        return Date.now() - job.startTime;
-    }
     return Date.now() - job.startTime;
 }
 
@@ -254,17 +246,24 @@ export function isRunning(job: Job): boolean {
     return job.status === "running";
 }
 
-/** Read a job's log file, returning the tail truncated to `maxChars`. */
+/** 잡의 로그 파일 끝부분만 읽는다. 대용량 파일에서도 O(maxChars)만 읽는다. */
 export function readLogTail(job: Job, maxChars: number): string {
     if (job.tmux) {
         const out = capturePane(job.tmux.windowId, TMUX_PANE_LINES, job.tmux.outputFile);
-        if (out.length <= maxChars) return out;
-        return `...[truncated, showing last ${maxChars} chars]\n${out.slice(-maxChars)}`;
+        return truncateTail(out, maxChars);
     }
     try {
-        const content = readFileSync(job.logPath, "utf-8");
-        if (content.length <= maxChars) return content;
-        return `...[truncated, showing last ${maxChars} chars]\n${content.slice(-maxChars)}`;
+        const { size } = statSync(job.logPath);
+        if (size <= maxChars) return readFileSync(job.logPath, "utf-8");
+        // 테일만 읽기 — 전체 파일을 메모리에 올리지 않는다.
+        const fd = openSync(job.logPath, "r");
+        try {
+            const buf = Buffer.alloc(maxChars);
+            readSync(fd, buf, 0, maxChars, Math.max(0, size - maxChars));
+            return `...[truncated, showing last ${maxChars} chars]\n${buf.toString("utf-8")}`;
+        } finally {
+            closeSync(fd);
+        }
     } catch {
         return "(no output yet)";
     }

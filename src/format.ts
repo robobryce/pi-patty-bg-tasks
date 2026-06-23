@@ -43,3 +43,8 @@ export function truncateTail(content: string, maxChars: number): string {
     if (content.length <= maxChars) return content;
     return `...[truncated, showing last ${maxChars} chars]\n${content.slice(-maxChars)}`;
 }
+
+/** 텍스트 콘텐츠 블록 빌더 — 모든 툴에서 공유. */
+export function textBlock(s: string): { type: "text"; text: string } {
+    return { type: "text" as const, text: s };
+}

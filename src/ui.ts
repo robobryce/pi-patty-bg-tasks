@@ -18,6 +18,7 @@ import {
 } from "./proc.ts";
 import {
     findJob,
+    forget,
     readLogTail,
     renderSidebar,
 } from "./registry.ts";
@@ -39,7 +40,7 @@ export async function showTaskDetail(
         if (choice === undefined) return;
         if (choice.startsWith("Attach")) {
             ctx.ui.setStatus("attach-flow", `Attaching to ${job.name ?? job.id}...`);
-            if (!job.donePromise) createCompletionPromise(job);
+            createCompletionPromise(job);
             await job.donePromise;
             ctx.ui.setStatus("attach-flow", undefined);
             const out = readLogTail(job, OUTPUT_PREVIEW_CHARS);
@@ -82,7 +83,7 @@ export async function showTaskDetail(
                     `Log: ${job.logPath}\n\n--- OUTPUT ---\n${out}`
             );
         } else {
-            reg.jobs.delete(job.id);
+            forget(reg, job);
             renderSidebar(reg, ctx);
             ctx.ui.notify(`Removed ${job.name ?? job.id}`, "info");
         }

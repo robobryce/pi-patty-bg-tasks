@@ -30,6 +30,7 @@ import {
     killProcessTree,
 } from "../proc.ts";
 import {
+    add,
     findJob,
     forget,
     nextJobId,
@@ -38,15 +39,12 @@ import {
 } from "../registry.ts";
 import { markKilledSilently, markTerminal, notifyFinished, statusFromExit, watchStalls } from "../lifecycle.ts";
 import type { Job } from "../types.ts";
+import { textBlock } from "../format.ts";
 
 type AgentBgParams = {
     prompt: string;
     cwd?: string;
 };
-
-function textBlock(s: string) {
-    return { type: "text" as const, text: s };
-}
 
 // ─── 컨텍스트 추출 ─────────────────────────────────────────────────
 
@@ -168,18 +166,20 @@ export function registerAgentBgTool(
                 `@${promptFile}`,
             ];
 
-            const proc = spawn("pi", spawnArgs, {
-                cwd,
-                detached: true,
-                stdio: ["pipe", "pipe", "pipe"],
-            });
+            let proc;
+            try {
+                proc = spawn("pi", spawnArgs, {
+                    cwd,
+                    detached: true,
+                    stdio: ["pipe", "pipe", "pipe"],
+                });
+            } catch (err) {
+                try { unlinkSync(promptFile); } catch { /* 이미 삭제됨 */ }
+                throw err;
+            }
 
             if (!proc.pid) {
-                try {
-                    unlinkSync(promptFile);
-                } catch {
-                    /* ignore */
-                }
+                try { unlinkSync(promptFile); } catch { /* 이미 삭제됨 */ }
                 throw new Error("Failed to spawn background agent process");
             }
 
@@ -198,7 +198,7 @@ export function registerAgentBgTool(
                 toolCallId,
                 isBackgrounded: true,
             };
-            addJob(reg, job);
+            add(reg, job);
 
             const cancelStall = watchStalls({
                 jobId: id,
@@ -252,9 +252,4 @@ export function registerAgentBgTool(
     });
 }
 
-function addJob(reg: BackgroundRegistry, job: Job): void {
-    reg.jobs.set(job.id, job);
-    reg.totalStarted++;
-}
 
-void addJob;

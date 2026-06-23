@@ -89,7 +89,7 @@ export function registerCommands(
             );
             try {
                 if (!snapshot && job.status === "running") {
-                    if (!job.donePromise) createCompletionPromise(job);
+                    createCompletionPromise(job);
                     await job.donePromise;
                 }
 

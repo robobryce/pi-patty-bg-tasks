@@ -251,16 +251,21 @@ export function spawnTmuxWindow(args: {
         exitCodeFile,
     });
 
-    const exists = tmuxSessionExists(args.session);
-    const createCmd = exists
-        ? `new-window -d -t ${shellQuote(args.session)}`
-        : `new-session -d -s ${shellQuote(args.session)}`;
-
     const windowName = args.command.split(/\s/)[0]?.slice(0, 30) ?? "shell";
-    const windowId = execSync(
-        `tmux ${createCmd} -n ${shellQuote(windowName)} -c ${shellQuote(args.cwd)} -P -F '#{window_id}' ${shellQuote(scriptPath)}`,
-        { encoding: "utf-8", timeout: 10_000, stdio: "pipe" }
-    ).trim();
+
+    // TOCTOU 회피: 세션 존재 확인 없이 new-window 시도 → 실패 시 new-session 폴백.
+    let windowId: string;
+    try {
+        windowId = execSync(
+            `tmux new-window -d -t ${shellQuote(args.session)} -n ${shellQuote(windowName)} -c ${shellQuote(args.cwd)} -P -F '#{window_id}' ${shellQuote(scriptPath)}`,
+            { encoding: "utf-8", timeout: 10_000, stdio: "pipe" }
+        ).trim();
+    } catch {
+        windowId = execSync(
+            `tmux new-session -d -s ${shellQuote(args.session)} -n ${shellQuote(windowName)} -c ${shellQuote(args.cwd)} -P -F '#{window_id}' ${shellQuote(scriptPath)}`,
+            { encoding: "utf-8", timeout: 10_000, stdio: "pipe" }
+        ).trim();
+    }
 
     return { windowId, id, outputFile, exitCodeFile };
 }
@@ -279,9 +284,13 @@ export function killTmuxWindow(windowId: string): void {
 
 /** Capture the last N lines of a tmux pane, falling back to a tee'd file. */
 export function capturePane(windowId: string, lines: number, outputFile?: string): string {
-    if (outputFile && existsSync(outputFile)) {
-        const content = readFileSync(outputFile, "utf-8");
-        if (content.length > 0) return content;
+    if (outputFile) {
+        try {
+            const content = readFileSync(outputFile, "utf-8");
+            if (content.length > 0) return content;
+        } catch {
+            // 파일이 아직 없거나 삭제됨 — tmux capture로 폴백.
+        }
     }
     try {
         const raw = execSync(

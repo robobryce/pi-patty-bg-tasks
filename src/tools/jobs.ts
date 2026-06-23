@@ -35,7 +35,7 @@ import {
     readLogTail,
     renderSidebar,
 } from "../registry.ts";
-import { formatDuration, formatJobLine, truncateTail } from "../format.ts";
+import { formatDuration, formatJobLine, textBlock, truncateTail } from "../format.ts";
 import {
     createCompletionPromise,
     isSignalExit,
@@ -43,10 +43,6 @@ import {
     markTerminal,
     terminateJob,
 } from "../lifecycle.ts";
-
-function textBlock(s: string) {
-    return { type: "text" as const, text: s };
-}
 
 /** `jobs` 툴을 등록한다. */
 export function registerJobsTool(
@@ -207,7 +203,7 @@ async function attachAction(
         reg.pendingDecisionJobId === job.id && job.status === "running";
 
     if (job.status === "running" && waitForCompletion && !skipWait) {
-        if (!job.donePromise) createCompletionPromise(job);
+        createCompletionPromise(job);
 
         // OS 프로세스가 이미 죽었는지 즉시 확인.
         if (!job.tmux && job.pid > 0 && !processExists(job.pid)) {

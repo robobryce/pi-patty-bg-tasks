@@ -70,7 +70,9 @@ export function statusFromExit(code: number | null | undefined): JobStatus {
  * 잡 donePromise를 생성한다. attach/log-wait 흐름에서 결과를 기다리는
  * 진입점이 된다.
  */
+/** 멱등성 보장 — 이미 donePromise가 있으면 재생성하지 않는다. */
 export function createCompletionPromise(job: Job): void {
+    if (job.donePromise) return;
     let resolveDone: (() => void) | undefined;
     job.donePromise = new Promise<void>((resolve) => {
         resolveDone = resolve;

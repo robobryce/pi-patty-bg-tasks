@@ -46,6 +46,7 @@ import {
     statusFromExit,
     watchStalls,
 } from "../lifecycle.ts";
+import { textBlock } from "../format.ts";
 
 type BashBgParams = {
     command: string;
@@ -55,10 +56,6 @@ type BashBgParams = {
 };
 
 type BashBgCtx = UiContext & { cwd: string };
-
-function textBlock(s: string) {
-    return { type: "text" as const, text: s };
-}
 
 /** `bash_bg` 툴을 등록한다. */
 export function registerBashBgTool(
@@ -273,7 +270,18 @@ function spawnViaTmux(args: {
           })
         : () => {};
 
+    // 6시간 안전 타임아웃 — sentinel 파일이 영원히 안 쓰이는 경우 leak 방지.
+    const MAX_POLLS = 43_200; // 6h ÷ 500ms
+    let pollCount = 0;
     const poll = setInterval(() => {
+        if (++pollCount > MAX_POLLS) {
+            clearInterval(poll);
+            cancelStall();
+            if (job.status === "running") {
+                markTerminal(job, "failed");
+            }
+            return;
+        }
         const code = readExitSentinel(tmuxCtx.exitCodeFile);
         if (code === undefined) return;
         clearInterval(poll);

@@ -14,10 +14,7 @@ import type { BackgroundRegistry } from "../state.ts";
 import { OUTPUT_PREVIEW_CHARS } from "../types.ts";
 import { findJob, readLogTail, renderSidebar } from "../registry.ts";
 import { markKilledSilently, terminateJob } from "../lifecycle.ts";
-
-function textBlock(s: string) {
-    return { type: "text" as const, text: s };
-}
+import { textBlock } from "../format.ts";
 
 /** `job_decide` 툴을 등록한다. */
 export function registerJobDecideTool(
