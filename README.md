@@ -10,7 +10,7 @@ Background-task extension for the [pi](https://github.com/earendil-works/pi-mono
 
 | Tool | Description |
 |------|-------------|
-| **`bash`** (override) | Every bash command runs normally, but commands exceeding 15 s are auto-backgrounded. The agent is prompted to keep or kill them via `job_decide`. Press **Ctrl+B** to manually background at any time. |
+| **`bash`** (override) | Every bash command runs normally, but commands exceeding 15 s are auto-backgrounded. The agent is prompted to keep or kill them via `job_decide`. Press **Ctrl+Shift+B** to manually background at any time. |
 | **`bash_bg`** | Start a command in the background immediately. Supports `--name <label>` for human-readable job tracking and an optional `timeout` (seconds) that triggers the same bg-timeout flow. |
 | **`jobs`** | List, read output, kill, or attach to background jobs. Includes `search <regex>`, `cleanup`, and `stats` actions. |
 | **`job_decide`** | Keep, kill, or check a job that was auto-backgrounded by the 15 s timer. |
@@ -20,15 +20,15 @@ Background-task extension for the [pi](https://github.com/earendil-works/pi-mono
 
 | Shortcut | Action |
 |----------|--------|
-| **Ctrl+B** | Background the current foreground process, or resume a paused agent |
+| **Ctrl+Shift+B** | Background the current foreground process, or resume a paused agent |
 | **Ctrl+J** / **Shift+Down** | Open the task list UI |
-| **Ctrl+X** | Kill the most recently started running job |
+| **Ctrl+Shift+X** | Kill the most recently started running job |
 
 ### Slash Commands
 
 | Command | Description |
 |---------|-------------|
-| `/bg` | Same as Ctrl+B |
+| `/bg` | Same as Ctrl+Shift+B |
 | `/fg [job-id] [--snapshot]` | Attach to a job's output (default: most recent running) |
 | `/jobs` | Open the interactive task manager |
 

@@ -11,7 +11,7 @@ output across all running jobs — all without leaving the conversation.
 
 - **`bash` (override)** — every bash command can run, but commands
   longer than 15 s are automatically moved to the background and the
-  agent is asked whether to keep or kill them. Press **Ctrl+B** to
+  agent is asked whether to keep or kill them. Press **Ctrl+Shift+B** to
   manually background a running command.
 - **`bash_bg`** — start a command in the background from the get-go.
   - New: `--name <label>` for easy tracking in `jobs list`.
@@ -61,15 +61,15 @@ Or add to `~/.pi/agent/settings.json`:
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+B` | Background a running bash/agent, or resume a paused agent |
+| `Ctrl+Shift+B` | Background a running bash/agent, or resume a paused agent |
 | `Ctrl+J` / `Shift+Down` | Open the background-task list |
-| `Ctrl+X` | Kill the most recently started running job |
+| `Ctrl+Shift+X` | Kill the most recently started running job |
 
 ## Commands
 
 | Command | Action |
 |---------|--------|
-| `/bg` | Same as `Ctrl+B` |
+| `/bg` | Same as `Ctrl+Shift+B` |
 | `/fg [job-id] [--snapshot]` | Attach to a job's output (default: most recent running) |
 | `/jobs` | Open the background-task list |
 
@@ -82,7 +82,7 @@ The bash tool races the child command against three outcomes:
 2. **Auto-background** (at 15 s) — mark the job as backgrounded, send
    a `bg-timeout` follow-up to the agent, and require a `job_decide`
    call to keep or kill it.
-3. **Manual background** (any time via Ctrl+B) — same as above but
+3. **Manual background** (any time via Ctrl+Shift+B) — same as above but
    without the 15-s wait.
 
 In non-interactive mode (`-p`, `--print`, non-TTY stdin), the timer
@@ -133,7 +133,7 @@ src/
                         markTerminal, buildTimeoutNotice, createCompletionPromise,
                         reviveAndValidate, cleanupStaleLogs, cleanupStaleTmuxArtifacts
   ui.ts                 showTaskDetail, showTaskList — Ctrl+J TUI
-  shortcuts.ts          Ctrl+B, Ctrl+J/Shift+Down, Ctrl+X 등록
+  shortcuts.ts          Ctrl+Shift+B, Ctrl+J/Shift+Down, Ctrl+Shift+X 등록
   commands.ts           /bg, /fg, /jobs 등록
   tools/
     bash.ts             bash 툴 오버라이드 + runDirect/runViaTmux

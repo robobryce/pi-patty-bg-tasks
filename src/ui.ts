@@ -101,7 +101,7 @@ export async function showTaskList(
 
     const items: string[] = [];
     if (reg.agentPaused) {
-        items.push("◐ agent · paused · Ctrl+B to resume");
+        items.push("◐ agent · paused · Ctrl+Shift+B to resume");
     }
     for (const job of runningJobs) {
         const duration = formatDuration(Date.now() - job.startTime);
@@ -132,7 +132,7 @@ export async function showTaskList(
     if (selected) await showTaskDetail(selected, reg, ctx);
 }
 
-/** Ctrl+B의 두 번째 동작: agentPaused 해제 + 통지. */
+/** Ctrl+Shift+B의 두 번째 동작: agentPaused 해제 + 통지. */
 function resumeAgent(reg: BackgroundRegistry, ctx: UiContext): void {
     reg.agentPaused = false;
     ctx.ui.setStatus("agent-paused", undefined);

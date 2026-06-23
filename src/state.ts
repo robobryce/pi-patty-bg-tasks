@@ -13,9 +13,9 @@ export class BackgroundRegistry {
     foreground = new Map<string, ForegroundSlot>();
     /** Monotonic counter for job-id generation. */
     counter = 0;
-    /** Set while a foreground bash invocation is mid-flight; cleared on completion or Ctrl+B. */
+    /** Set while a foreground bash invocation is mid-flight; cleared on completion or Ctrl+Shift+B. */
     activeToolCallId: string | null = null;
-    /** Set when the user pressed Ctrl+B during agent processing. */
+    /** Set when the user pressed Ctrl+Shift+B during agent processing. */
     agentPaused = false;
     /** Job awaiting a decision via `job_decide`. */
     pendingDecisionJobId: string | undefined;

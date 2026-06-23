@@ -3,7 +3,7 @@
  *
  * 표준 bash 툴을 확장해 다음 동작을 추가한다:
  *   - 15초 후 자동 백그라운딩 (job_decide 응답 필요)
- *   - 사용자가 Ctrl+B를 누르면 즉시 백그라운딩
+ *   - 사용자가 Ctrl+Shift+B를 누르면 즉시 백그라운딩
  *   - 2초 안에 완료되면 빠른 종료 경로 (백그라운딩 절차 생략)
  *   - tmux 사용 가능 시 tmux 윈도우로 실행 (race 윈도우 제거)
  */
@@ -81,9 +81,9 @@ export function registerBashTool(
         name: "bash",
         description:
             "Bash 명령 실행. 15초 후 자동 백그라운딩되며, " +
-            "Ctrl+B로 수동 백그라운딩 가능. 백그라운드 잡의 출력은 " +
+            "Ctrl+Shift+B로 수동 백그라운딩 가능. 백그라운드 잡의 출력은 " +
             "/tmp/pi-bg-<jobId>.log에 저장된다.",
-        promptSnippet: "셸 명령 실행 (Ctrl+B로 백그라운딩 가능)",
+        promptSnippet: "셸 명령 실행 (Ctrl+Shift+B로 백그라운딩 가능)",
         promptGuidelines: [
             "장시간 실행이 예상되면 처음부터 bash_bg 사용.",
             "상태 확인은 jobs 툴의 action='list'.",
@@ -154,7 +154,7 @@ async function runDirect(
     const logPath = logPathFor(id);
     const spawned = spawnDetached(command, ctx.cwd, logPath);
 
-    // foreground 슬롯에 등록 — Ctrl+B 핸들러가 여기서 잡을 찾는다.
+    // foreground 슬롯에 등록 — Ctrl+Shift+B 핸들러가 여기서 잡을 찾는다.
     let pauseResolve: (() => void) | null = null;
     const pausePromise = new Promise<void>((resolve) => {
         pauseResolve = resolve;
@@ -202,7 +202,7 @@ async function runDirect(
     });
 
     const hintTimer = nodeSetTimeout(() => {
-        ctx.ui.notify("⏱ Ctrl+B to background", "info");
+        ctx.ui.notify("⏱ Ctrl+Shift+B to background", "info");
     }, QUICK_COMPLETION_MS);
     hintTimer.unref();
 
@@ -377,7 +377,7 @@ async function runViaTmux(
     });
 
     const hintTimer = nodeSetTimeout(() => {
-        ctx.ui.notify("⏱ Ctrl+B to background", "info");
+        ctx.ui.notify("⏱ Ctrl+Shift+B to background", "info");
     }, QUICK_COMPLETION_MS);
     hintTimer.unref();
 

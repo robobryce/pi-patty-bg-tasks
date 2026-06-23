@@ -91,7 +91,7 @@ export interface Job {
     tmux?: TmuxContext;
 }
 
-/** Transient handle for a foreground bash invocation — Ctrl+B triggers
+/** Transient handle for a foreground bash invocation — Ctrl+Shift+B triggers
  *  `requestPause` to flip the job into background mode mid-flight. */
 export interface ForegroundSlot {
     toolCallId: string;

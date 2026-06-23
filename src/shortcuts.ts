@@ -1,9 +1,9 @@
 /**
  * 키보드 단축키 등록.
  *
- *   - Ctrl+B: 포그라운드 bash/agent를 백그라운드로 전환 (또는 재개)
+ *   - Ctrl+Shift+B: 포그라운드 bash/agent를 백그라운드로 전환 (또는 재개)
  *   - Ctrl+J / Shift+Down: 작업 목록 TUI 열기
- *   - Ctrl+X: 가장 최근 실행 중인 잡 종료
+ *   - Ctrl+Shift+X: 가장 최근 실행 중인 잡 종료
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -18,7 +18,7 @@ export function registerShortcuts(
     pi: ExtensionAPI,
     reg: BackgroundRegistry
 ): void {
-    pi.registerShortcut("ctrl+b", {
+    pi.registerShortcut("ctrl+shift+b", {
         description: "백그라운드 bash/agent, 또는 일시정지된 agent 재개",
         handler: async (ctx) => handleCtrlB(reg, pi, ctx),
     });
@@ -33,14 +33,14 @@ export function registerShortcuts(
         handler: async (ctx) => showTaskList(reg, ctx),
     });
 
-    pi.registerShortcut("ctrl+x", {
+    pi.registerShortcut("ctrl+shift+x", {
         description: "가장 최근 실행 중인 백그라운드 잡 종료",
         handler: async (ctx) => handleCtrlX(reg, ctx),
     });
 }
 
 /**
- * Ctrl+B 핸들러:
+ * Ctrl+Shift+B 핸들러:
  *   - agentPaused면 재개한다.
  *   - 포그라운드 bash가 진행 중이면 pausePromise를 해소해 백그라운딩.
  *   - 둘 다 아니면 알림만 띄운다 (사용자에게 무의미한 상태 전이를 알리지 않음).
@@ -83,10 +83,10 @@ async function handleCtrlB(
     reg.agentPaused = true;
     ctx.ui.setStatus("agent-paused", ctx.ui.theme.fg("warning", "⏸ Paused"));
     renderSidebar(reg, ctx);
-    ctx.ui.notify("⏸ Backgrounded. Ctrl+B to resume.", "info");
+    ctx.ui.notify("⏸ Backgrounded. Ctrl+Shift+B to resume.", "info");
 }
 
-/** Ctrl+X: 가장 최근 실행 중인 잡 종료. */
+/** Ctrl+Shift+X: 가장 최근 실행 중인 잡 종료. */
 async function handleCtrlX(
     reg: BackgroundRegistry,
     ctx: Parameters<NonNullable<Parameters<ExtensionAPI["registerShortcut"]>[1]["handler"]>>[0]

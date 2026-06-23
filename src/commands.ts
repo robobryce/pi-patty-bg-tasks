@@ -1,7 +1,7 @@
 /**
  * 슬래시 커맨드 등록.
  *
- *   - /bg: Ctrl+B와 동일
+ *   - /bg: Ctrl+Shift+B와 동일
  *   - /fg [job-id] [--snapshot]: 잡 출력 attach
  *   - /jobs: 작업 목록 TUI 열기
  */
@@ -24,7 +24,7 @@ export function registerCommands(
     pi.registerCommand("bg", {
         description: "백그라운드 bash/agent, 또는 일시정지된 agent 재개",
         handler: async (_args, ctx) => {
-            // 단순 alias: Ctrl+B 핸들러 호출.
+            // 단순 alias: Ctrl+Shift+B 핸들러 호출.
             // (단축키 핸들러는 ctx를 다르게 받기 때문에 직접 호출하지 않고
             //  상태만 토글한다.)
             if (reg.agentPaused) {
@@ -52,7 +52,7 @@ export function registerCommands(
                         ctx.ui.theme.fg("warning", "⏸ Paused")
                     );
                     renderSidebar(reg, ctx);
-                    ctx.ui.notify("⏸ Backgrounded. Ctrl+B to resume.", "info");
+                    ctx.ui.notify("⏸ Backgrounded. Ctrl+Shift+B to resume.", "info");
                     return;
                 }
             }
