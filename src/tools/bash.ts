@@ -41,15 +41,17 @@ import {
     getGitRoot,
     killProcessTree,
     killTmuxWindow,
+    pollExitSentinel,
     readExitSentinel,
     sessionNameForGitRoot,
     spawnDetached,
     spawnTmuxWindow,
     tmuxRunDir,
 } from "../proc.ts";
-import { add, findJob, forget, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
+import { add, findJob, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
 import {
     buildTimeoutNotice,
+    completeJob,
     createCompletionPromise,
     detectBlockedSleep,
     isAutoBackgroundAllowed,
@@ -57,10 +59,8 @@ import {
     isSignalExit,
     markKilledSilently,
     markTerminal,
-    notifyFinished,
     requireExistingCwd,
     scheduleTimeout,
-    statusFromExit,
     watchProgress,
     watchStalls,
 } from "../lifecycle.ts";
@@ -383,7 +383,7 @@ async function runViaTmux(
     hintTimer.unref();
 
     // 종료 sentinel 폴링.
-    const completionPromise = pollExitSentinel(tmuxCtx.exitCodeFile);
+    const completionPromise = pollExitSentinel({ file: tmuxCtx.exitCodeFile, intervalMs: 200 });
 
     let progress: { stop: () => void } | undefined;
     const clearAllTimers = () => {
@@ -447,15 +447,8 @@ async function runViaTmux(
                 }
                 clearTimeout(bgPoll);
                 cancelStall();
-                if (job.status !== "running") return;
-                markTerminal(job, statusFromExit(code), code);
-                const finished = findJob(reg, job.id);
-                if (finished) {
-                    notifyFinished({ job: finished, reg, pi, ctx });
-                    forget(reg, finished);
-                    renderSidebar(reg, ctx);
-                }
                 killTmuxWindow(tmuxCtx.windowId);
+                completeJob({ job, code, reg, pi, ctx });
             }, 500);
             bgPoll.unref();
 
@@ -529,21 +522,16 @@ function promoteToBackground(args: {
 
     args.proc.on("close", (code) => {
         cancelStall();
-        if (args.placeholder.status !== "running") return;
-        markTerminal(
-            args.placeholder,
-            statusFromExit(code),
-            code ?? undefined
-        );
         if (args.reg.pendingDecisionJobId === args.placeholder.id) {
             args.reg.pendingDecisionJobId = undefined;
         }
-        const finished = findJob(args.reg, args.placeholder.id);
-        if (finished) {
-            notifyFinished({ job: finished, reg: args.reg, pi: args.pi, ctx: args.ctx });
-            forget(args.reg, finished);
-        }
-        renderSidebar(args.reg, args.ctx);
+        completeJob({
+            job: args.placeholder,
+            code,
+            reg: args.reg,
+            pi: args.pi,
+            ctx: args.ctx,
+        });
     });
 
     args.placeholder.isBackgrounded = true;
@@ -600,19 +588,7 @@ function captureFromTmux(ctx: TmuxContext): string {
     return capturePane(ctx.windowId, 2_000, ctx.outputFile);
 }
 
-function pollExitSentinel(file: string): Promise<number | null> {
-    return new Promise((resolve) => {
-        const tick = () => {
-            const code = readExitSentinel(file);
-            if (code !== undefined) {
-                resolve(code);
-                return;
-            }
-            nodeSetTimeout(tick, 200).unref();
-        };
-        tick();
-    });
-}
+
 
 // registerBashTool만 공개 진입점. 다른 export는 의도된 보조.
 void randomUUID;

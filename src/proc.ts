@@ -303,6 +303,35 @@ export function capturePane(windowId: string, lines: number, outputFile?: string
     }
 }
 
+/**
+ * sentinel 파일을 폴링하여 종료 코드를 기다린다.
+ * maxPolls 초과 시 null 반환 (타임아웃 → 실패 처리 위임).
+ */
+export function pollExitSentinel(args: {
+    file: string;
+    intervalMs?: number;
+    maxPolls?: number;
+}): Promise<number | null> {
+    const intervalMs = args.intervalMs ?? 500;
+    const maxPolls = args.maxPolls ?? 43_200; // 6h ÷ 500ms
+    return new Promise((resolve) => {
+        let count = 0;
+        const timer = setInterval(() => {
+            if (++count > maxPolls) {
+                clearInterval(timer);
+                resolve(null);
+                return;
+            }
+            const code = readExitSentinel(args.file);
+            if (code !== undefined) {
+                clearInterval(timer);
+                resolve(code);
+            }
+        }, intervalMs);
+        timer.unref();
+    });
+}
+
 /** Read the exit-code sentinel file. Returns undefined if not yet written. */
 export function readExitSentinel(file: string): number | undefined {
     if (!existsSync(file)) return undefined;

@@ -29,21 +29,20 @@ import {
     getGitRoot,
     killProcessTree,
     killTmuxWindow,
-    readExitSentinel,
+    pollExitSentinel,
     sessionNameForGitRoot,
     spawnDetached,
     spawnTmuxWindow,
 } from "../proc.ts";
-import { add, findJob, forget, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
+import { add, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
 import {
     buildTimeoutNotice,
+    completeJob,
     createCompletionPromise,
     isAutoBackgroundAllowed,
     isBlankCommand,
     markTerminal,
-    notifyFinished,
     requireExistingCwd,
-    statusFromExit,
     watchStalls,
 } from "../lifecycle.ts";
 import { textBlock } from "../format.ts";
@@ -158,29 +157,11 @@ export function registerBashBgTool(
 
             spawned.proc.on("close", (code) => {
                 cancelStall();
-                if (job.status !== "running") return;
-                markTerminal(job, statusFromExit(code), code ?? undefined);
-                if (shouldNotify) {
-                    const finished = findJob(reg, id);
-                    if (finished) {
-                        notifyFinished({ job: finished, reg, pi, ctx: ctx2 });
-                        forget(reg, finished);
-                        renderSidebar(reg, ctx2);
-                    }
-                }
+                completeJob({ job, code, reg, pi, ctx: ctx2, shouldNotify });
             });
             spawned.proc.on("error", () => {
                 cancelStall();
-                if (job.status !== "running") return;
-                markTerminal(job, "failed");
-                if (shouldNotify) {
-                    const finished = findJob(reg, id);
-                    if (finished) {
-                        notifyFinished({ job: finished, reg, pi, ctx: ctx2 });
-                        forget(reg, finished);
-                        renderSidebar(reg, ctx2);
-                    }
-                }
+                completeJob({ job, code: 1, reg, pi, ctx: ctx2, shouldNotify });
             });
 
             // timeout이 있으면 timeout-tick 별도 시작.
@@ -270,40 +251,19 @@ function spawnViaTmux(args: {
           })
         : () => {};
 
-    // 6시간 안전 타임아웃 — sentinel 파일이 영원히 안 쓰이는 경우 leak 방지.
-    const MAX_POLLS = 43_200; // 6h ÷ 500ms
-    let pollCount = 0;
-    const poll = setInterval(() => {
-        if (++pollCount > MAX_POLLS) {
-            clearInterval(poll);
-            cancelStall();
-            if (job.status === "running") {
-                markTerminal(job, "failed");
-            }
-            return;
-        }
-        const code = readExitSentinel(tmuxCtx.exitCodeFile);
-        if (code === undefined) return;
-        clearInterval(poll);
+    // sentinel 파일 폴링 — 6h 안전 타임아웃 포함.
+    pollExitSentinel({ file: tmuxCtx.exitCodeFile }).then((code) => {
         cancelStall();
-        if (job.status !== "running") return;
-        markTerminal(job, statusFromExit(code), code);
         killTmuxWindow(tmuxCtx.windowId);
-        if (args.shouldNotify) {
-            const finished = findJob(args.reg, id);
-            if (finished) {
-                notifyFinished({
-                    job: finished,
-                    reg: args.reg,
-                    pi: args.pi,
-                    ctx: args.ctx,
-                });
-                forget(args.reg, finished);
-                renderSidebar(args.reg, args.ctx);
-            }
-        }
-    }, 500);
-    poll.unref();
+        completeJob({
+            job,
+            code,
+            reg: args.reg,
+            pi: args.pi,
+            ctx: args.ctx,
+            shouldNotify: args.shouldNotify,
+        });
+    });
 
     return job;
 }

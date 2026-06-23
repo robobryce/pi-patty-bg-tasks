@@ -31,13 +31,11 @@ import {
 } from "../proc.ts";
 import {
     add,
-    findJob,
-    forget,
     nextJobId,
     logPathFor,
     renderSidebar,
 } from "../registry.ts";
-import { markKilledSilently, markTerminal, notifyFinished, statusFromExit, watchStalls } from "../lifecycle.ts";
+import { completeJob, markKilledSilently, watchStalls } from "../lifecycle.ts";
 import type { Job } from "../types.ts";
 import { textBlock } from "../format.ts";
 
@@ -215,14 +213,7 @@ export function registerAgentBgTool(
             const finalize = (code: number | null) => {
                 cancelStall();
                 logStream.end();
-                if (job.status !== "running") return;
-                markTerminal(job, statusFromExit(code), code ?? undefined);
-                const finished = findJob(reg, id);
-                if (finished) {
-                    notifyFinished({ job: finished, reg, pi, ctx });
-                    forget(reg, finished);
-                    renderSidebar(reg, ctx);
-                }
+                completeJob({ job, code, reg, pi, ctx });
                 for (const f of cleanupFiles) {
                     try {
                         unlinkSync(f);

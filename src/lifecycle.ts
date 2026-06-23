@@ -30,10 +30,35 @@ import {
     processExists,
     readExitSentinel,
 } from "./proc.ts";
-import { findJob, renderSidebar } from "./registry.ts";
+import { findJob, forget, renderSidebar } from "./registry.ts";
 import { formatDuration, truncateTail } from "./format.ts";
 
 // ─── 잡 종료 표시 ────────────────────────────────────────────────────
+
+/**
+ * 잡 종료 후 표준 완료 흐름 — markTerminal → notifyFinished → forget → renderSidebar.
+ * 모든 툴(bash, bash_bg, agent_bg)의 proc.on("close") / sentinel 폴링 콜백에서
+ * 공유하는 표준 종료 프로토콜.
+ */
+export function completeJob(args: {
+    job: Job;
+    code: number | null;
+    reg: BackgroundRegistry;
+    pi: ExtensionAPI;
+    ctx: UiContext;
+    shouldNotify?: boolean;
+}): void {
+    if (args.job.status !== "running") return;
+    markTerminal(args.job, statusFromExit(args.code), args.code ?? undefined);
+    if (args.shouldNotify !== false) {
+        const finished = findJob(args.reg, args.job.id);
+        if (finished) {
+            notifyFinished({ job: finished, reg: args.reg, pi: args.pi, ctx: args.ctx });
+            forget(args.reg, finished);
+        }
+    }
+    renderSidebar(args.reg, args.ctx);
+}
 
 /**
  * 잡을 터미널 상태로 표시하고 donePromise를 해소한다. 멱등성 보장 —
