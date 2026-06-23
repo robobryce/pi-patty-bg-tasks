@@ -1,144 +1,47 @@
-# pi-patty-bg-tasks — Background Tasks Extension for pi
+# pi-patty-bg-tasks
 
-Background tasks, agent-loop backgrounding, and background agents for the
-[pi](https://github.com/earendil-works/pi-mono) coding agent. Modelled after
-Claude Code's `ASSISTANT_BLOCKING_BUDGET_MS` and `bash_bg` semantics.
+Background-task support for the
+[pi](https://github.com/earendil-works/pi-mono) coding agent. Run long
+commands without blocking the agent, batch spawn helpers, and inspect
+output across all running jobs — all without leaving the conversation.
 
-Extracted from the [pi-tau](https://github.com/Mearman/tau) extension; this
-package contains only the background-tasks feature set.
+## What's in the box
 
-## Features
+- **`bash` (override)** — every bash command can run, but commands
+  longer than 15 s are automatically moved to the background and the
+  agent is asked whether to keep or kill them. Press **Ctrl+B** to
+  manually background a running command.
+- **`bash_bg`** — start a command in the background from the get-go.
+  - New: `--name <label>` for easy tracking in `jobs list`.
+  - New: `timeout` (seconds) for an optional per-job auto-background
+    timeout that reuses the bash tool's `bg-timeout` flow.
+- **`jobs`** — list, read output from, kill, or attach to background
+  jobs.
+  - New: `search <regex>` — search across every job's log with line
+    references.
+  - New: `cleanup` — purge terminal jobs from in-memory state and
+    reclaim their log files.
+  - New: `stats` — total started, by-status breakdown, average
+    duration, total CPU time.
+- **`job_decide`** — keep, kill, or check a job that the 15-second
+  timer backgrounded.
+- **`agent_bg`** — spawn a separate `pi -p` process in the background
+  with a continuity prompt derived from your current session.
+- **Pill bar** in the status line shows every running job with
+  command preview + elapsed time.
+- **Disk-based output** — every job writes stdout+stderr to
+  `/tmp/pi-bg-<jobId>.log`. No in-memory buffering, no memory pressure
+  on long-running jobs.
+- **Tmux backend** — when tmux is on `PATH` and you're in a git repo,
+  commands run inside tmux windows. This eliminates the
+  foreground/background output race window the plain `bash` tool has.
+- **Stall watchdog** — detects interactive prompts (`(y/n)`,
+  `Press any key`, `Continue?`) after 45 s of stagnant output. Kills
+  the job if its log file exceeds 100 MiB.
+- **Session persistence** — running jobs are written to the session on
+  shutdown and reattached on next launch.
 
-### Background Tasks
-
-- **Ctrl+B** — background running bash, background the agent loop, or resume a backgrounded agent
-- **15-second auto-background** — long-running commands are automatically backgrounded with agent confirmation
-- **Agent loop backgrounding** — Ctrl+B during agent processing blocks further tool calls and yields control back to you
-- **Disk-based output** — all background job output written to `/tmp/pi-bg-<jobId>.log`, not memory
-- **Process-group kill** — `process.kill(-pid)` terminates entire process trees
-- **Stall detection** — detects interactive prompts (`(y/n)`, `Press any key`) in background jobs after 45s of stagnant output
-- **Size watchdog** — kills background jobs exceeding 100 MiB output
-- **Background hint** — `⏱ Ctrl+B to background` appears after 2s of bash activity
-- **Pill bar** — `◐ job-1: cmd (12s) · ◐ agent (backgrounded)` in the status area
-- **Task management UI** — Shift+Down or Ctrl+J opens grouped task list with detail views
-- **Ctrl+X** — kill most recent running background task
-- **Session persistence** — job history survives pi restarts
-
-### Background Agent (`agent_bg`)
-
-- Spawns a separate `pi -p` process in the background for autonomous task execution
-- Constructs a continuation prompt from the current conversation context (original task + last assistant summary)
-- Output streamed to `/tmp/pi-bg-<jobId>.log`; agent notified on completion
-
-## Tools
-
-| Tool | Purpose |
-|------|---------|
-| `bash` | Standard bash, enhanced with 15s auto-background timeout and Ctrl+B support |
-| `bash_bg` | Start a command in the background immediately |
-| `jobs` | `list`, `output`, `kill`, or `attach` to background jobs |
-| `job_decide` | Decide what to do with a timed-out background job |
-| `agent_bg` | Spawn a background `pi -p` process for autonomous task execution |
-
-## Commands
-
-| Command | Purpose |
-|---------|---------|
-| `/bg` | Same as Ctrl+B — background bash/agent or resume |
-| `/fg` | Attach to a background job, optionally with `--snapshot` |
-| `/jobs` | Open task management interface |
-
-## Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+B` | Background running bash + agent, or resume backgrounded agent |
-| `Ctrl+X` | Kill most recent running background task |
-| `Ctrl+J` / `Shift+Down` | Open task management interface |
-
-## Design Decisions
-
-### Disk over Memory
-
-Output goes to files (`/tmp/pi-bg-<jobId>.log`), not in-memory buffers. Survives
-crashes, no memory pressure on long-running tasks. Tail-reads use
-`statSync` + `readSync` to read the last N bytes without loading the whole file.
-
-### Process Groups over tree-kill
-
-`process.kill(-pid)` kills the entire group when the child is spawned with
-`detached: true`. No external dependency needed. Falls back to killing the
-parent PID if the process group kill fails.
-
-### Block over Pause
-
-The agent loop can't be truly backgrounded (it runs in-process). Tool call
-blocking is the closest approximation: when `state.agentBackgrounded` is set,
-the `tool_call` event handler returns `{ block: true, reason: "" }` and the
-agent sees an empty block reason and stops cleanly. A second Ctrl+B resumes
-by clearing the flag and posting a `Continuing where you left off.` follow-up
-message that re-triggers the agent turn.
-
-### 15s Bash Timeout
-
-Matches Claude Code's `ASSISTANT_BLOCKING_BUDGET_MS`. Commands that need
-longer should use `bash_bg`. The timeout is skipped entirely in
-non-interactive mode (`-p`/`--print` or non-TTY stdin) because there is no
-agent loop to answer the `job_decide` follow-up.
-
-### 2s Quick-Completion Window
-
-Commands that finish within 2 s of spawn are returned directly without going
-through the backgrounded path. Avoids sending 14-second commands through the
-`job_decide` flow.
-
-### Stall Watchdog
-
-A 5 s `setInterval` checks the log file size and last 1024 bytes of output:
-
-- **Size**: if file exceeds 100 MiB, the job is SIGTERM'd and a `bg-stall`
-  warning is sent.
-- **Stall**: if the file hasn't grown for 45 s and the tail matches a known
-  interactive prompt pattern (`(y/n)`, `Press any key`, `Continue?`, etc.),
-  a `bg-stall` warning is sent.
-
-### Session Persistence
-
-On `session_shutdown`, the current background-jobs map is written to the
-session as a `background-tasks-state` custom entry (with `proc` /
-`donePromise` / `resolveDone` stripped). On `session_start`, the entry is
-read back; running jobs are re-validated against the OS (PID alive or tmux
-exit-code sentinel present) and stale entries are marked `completed`.
-
-### Tmux Backend
-
-When tmux is available, bash commands are spawned inside a per-git-root tmux
-session. This eliminates the foreground→background output race window
-(tmux owns the process lifecycle) and lets users attach to running commands
-with `tmux attach`. Falls back to direct child-process spawning when tmux
-is absent. The session is kept alive between windows to avoid
-fork+waitpid deadlocks that arise from accumulating tmux server state
-across hundreds of create/destroy cycles.
-
-## Architecture
-
-```
-src/
-  index.ts                Entry point — registers all features, cross-cutting event handlers
-  state.ts                TauState class — shared mutable state
-  types.ts                Shared type definitions (BackgroundJob, RunningProcess, UiContext)
-  utils.ts                Shared utilities (DEFAULT_TIMEOUT_MS, killProcessGroup, formatDuration, …)
-  tmux.ts                 Tmux utilities (session management, window creation, output capture)
-  features/
-    background.ts         bash override, bash_bg, jobs, job_decide tools
-    background-commands.ts  /bg, /fg, /jobs commands, Ctrl+B/X/J shortcuts, task UI
-    agent-background.ts   agent_bg tool — spawn detached pi -p process
-    bash-tmux.ts          Tmux-backed bash execution backend
-```
-
-## Installation
-
-### From npm (once published)
+## Install
 
 ```bash
 pi install npm:pi-patty-bg-tasks
@@ -152,26 +55,92 @@ Or add to `~/.pi/agent/settings.json`:
 }
 ```
 
-### From GitHub
+## Keyboard shortcuts
 
-```bash
-pi install github:patrickrho-patty/pi-patty-bg-tasks
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+B` | Background a running bash/agent, or resume a paused agent |
+| `Ctrl+J` / `Shift+Down` | Open the background-task list |
+| `Ctrl+X` | Kill the most recently started running job |
+
+## Commands
+
+| Command | Action |
+|---------|--------|
+| `/bg` | Same as `Ctrl+B` |
+| `/fg [job-id] [--snapshot]` | Attach to a job's output (default: most recent running) |
+| `/jobs` | Open the background-task list |
+
+## How the 15-second auto-background works
+
+The bash tool races the child command against three outcomes:
+
+1. **Quick completion** (within 2 s) — return the output directly, no
+   backgrounding ceremony.
+2. **Auto-background** (at 15 s) — mark the job as backgrounded, send
+   a `bg-timeout` follow-up to the agent, and require a `job_decide`
+   call to keep or kill it.
+3. **Manual background** (any time via Ctrl+B) — same as above but
+   without the 15-s wait.
+
+In non-interactive mode (`-p`, `--print`, non-TTY stdin), the timer
+does nothing — there's no agent loop to answer `job_decide`, so the
+command runs to completion.
+
+## New `bash_bg` features (v0.2)
+
+```ts
+// Label a job for tracking
+bash_bg({ command: "npm run build", name: "build" })
+
+// Per-job timeout (seconds) — at expiry, the same bg-timeout flow fires
+bash_bg({ command: "sleep 300 && ./do-stuff.sh", timeout: 60 })
 ```
 
-Or clone directly into the extensions directory:
+## New `jobs` actions (v0.2)
 
-```bash
-git clone https://github.com/patrickrho-patty/pi-patty-bg-tasks.git ~/.pi/agent/extensions/pi-patty-bg-tasks
-cd ~/.pi/agent/extensions/pi-patty-bg-tasks && pnpm install
+```ts
+// Regex search across every running + recent terminal job's log
+jobs({ action: "search", pattern: "ERROR.*timeout" })
+
+// Purge terminal jobs (frees log files)
+jobs({ action: "cleanup" })
+
+// Aggregate stats
+jobs({ action: "stats" })
+// Total started:   12
+// Currently running: 2
+// Completed:        8
+// Failed:           2
+// Killed:           0
+// Average duration: 4m12s
+// Total CPU time:   50m24s
 ```
 
-## Known Limitations
+## Architecture
 
-These require changes to pi core:
-
-1. **Agent doesn't keep running in background** — tool calls are blocked, the loop pauses. True background execution needs an `AgentLoopHandle` API in pi core.
-2. **Tmux backend requires a git repository** — session names are derived from the git root. Falls back to direct process management outside git repos.
+```
+src/
+  index.ts              진입점. 툴/단축키/커맨드 등록 + 세션 라이프사이클
+  state.ts              BackgroundRegistry — 공유 가변 상태
+  types.ts              Job, ForegroundSlot, TmuxContext, UiContext, 상수
+  format.ts             formatDuration, statusLabel, formatJobLine, truncateTail
+  proc.ts               spawnDetached, killProcessTree, processExists, tmux spawn/session
+  registry.ts           잡 CRUD: add/forget/find, renderSidebar, getStats, cleanupTerminal
+  lifecycle.ts          watchProgress, watchStalls, notifyFinished, scheduleTimeout,
+                        markTerminal, buildTimeoutNotice, createCompletionPromise,
+                        reviveAndValidate, cleanupStaleLogs, cleanupStaleTmuxArtifacts
+  ui.ts                 showTaskDetail, showTaskList — Ctrl+J TUI
+  shortcuts.ts          Ctrl+B, Ctrl+J/Shift+Down, Ctrl+X 등록
+  commands.ts           /bg, /fg, /jobs 등록
+  tools/
+    bash.ts             bash 툴 오버라이드 + runDirect/runViaTmux
+    bash-bg.ts          bash_bg 툴 + spawnViaTmux + per-job timeout
+    jobs.ts             jobs 툴 + search/cleanup/stats 액션
+    job-decide.ts       job_decide 툴 (keep/kill/check)
+    agent-bg.ts         agent_bg 툴 + 컨텍스트 추출
+```
 
 ## License
 
-MIT — [github.com/patrickrho-patty/pi-patty-bg-tasks](https://github.com/patrickrho-patty/pi-patty-bg-tasks)
+MIT

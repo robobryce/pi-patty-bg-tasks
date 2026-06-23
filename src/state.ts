@@ -1,19 +1,23 @@
 /**
- * Shared mutable state for the pi-patty-bg-tasks extension.
+ * Shared mutable state for the background-tasks extension.
  *
- * Single state instance shared across all feature modules.
+ * One instance per session, threaded through every tool and helper.
  */
 
-import type { BackgroundJob, RunningProcess } from "./types.ts";
+import type { Job, ForegroundSlot } from "./types.ts";
 
-export class TauState {
-    // ── Background jobs ──────────────────────────────────────────────
-
-    backgroundJobs = new Map<string, BackgroundJob>();
-    runningProcesses = new Map<string, RunningProcess>();
-    jobCounter = 0;
-    currentlyRunningToolCallId: string | null = null;
-    agentBackgrounded = false;
+export class BackgroundRegistry {
+    /** Active jobs keyed by generated id. */
+    jobs = new Map<string, Job>();
+    /** Transient foreground slots keyed by toolCallId. */
+    foreground = new Map<string, ForegroundSlot>();
+    /** Monotonic counter for job-id generation. */
+    counter = 0;
+    /** Set while a foreground bash invocation is mid-flight; cleared on completion or Ctrl+B. */
+    activeToolCallId: string | null = null;
+    /** Set when the user pressed Ctrl+B during agent processing. */
+    agentPaused = false;
+    /** Job awaiting a decision via `job_decide`. */
     pendingDecisionJobId: string | undefined;
 
     /** Whether tmux is available for the tmux-backed bash backend. */
@@ -23,16 +27,19 @@ export class TauState {
 
     /**
      * Whether pi is running non-interactively (print/`-p` mode, or stdin is not
-     * a TTY). When true there is no interactive agent loop to answer the
-     * auto-background `job_decide` prompt, so the bash tool must NOT
-     * auto-background on timeout — it runs the command to completion instead.
+     * a TTY). When true the bash tool does NOT auto-background on timeout —
+     * it runs the command to completion instead.
      */
     nonInteractive = false;
 
-    /** Lifetime counters for terminal jobs (for status bar summary). */
-    completedJobCount = 0;
-    failedJobCount = 0;
+    /** Lifetime counters for terminal jobs. */
+    completedCount = 0;
+    failedCount = 0;
+    /** Total jobs ever started in this session. */
+    totalStarted = 0;
+    /** Sum of terminal-job durations in ms — used by `jobs stats`. */
+    totalDurationMs = 0;
 
     /** Recent terminal jobs kept for `jobs output` lookups. */
-    recentTerminalJobs: BackgroundJob[] = [];
+    recentTerminal: Job[] = [];
 }

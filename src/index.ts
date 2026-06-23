@@ -1,161 +1,159 @@
 /**
- * pi-patty-bg-tasks — Background Tasks Extension for pi
+ * pi-patty-bg-tasks — pi 에이전트용 백그라운드 작업 확장.
  *
- * Extracted from the pi-tau (τ) extension. Provides:
- *   - Backgrounded bash commands (bash_bg, Ctrl+B, 15s auto-background)
- *   - Backgrounded agent loop (Ctrl+B during processing)
- *   - Background agent (agent_bg — spawns a separate pi -p process)
- *   - Disk-based job output to /tmp/pi-bg-<jobId>.log
- *   - Process-group kill, stall detection, size watchdog
- *   - /bg, /fg, /jobs commands; Ctrl+B/X/J shortcuts
+ * 5개의 툴을 등록한다:
+ *   - bash (오버라이드)
+ *   - bash_bg
+ *   - jobs
+ *   - job_decide
+ *   - agent_bg
  *
- * Tools: bash (overridden), bash_bg, jobs, job_decide, agent_bg
- * Commands: /bg, /fg, /jobs
- * Shortcuts: Ctrl+B, Ctrl+J / Shift+Down, Ctrl+X
+ * 키보드 단축키와 슬래시 커맨드도 함께 등록한다.
  */
 
 import type {
     ExtensionAPI,
     ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { TauState } from "./state.ts";
+import { createBashTool } from "@earendil-works/pi-coding-agent";
+import { BackgroundRegistry } from "./state.ts";
+import { isTmuxAvailable } from "./proc.ts";
 import {
     cleanupStaleLogs,
+    cleanupStaleTmuxArtifacts,
     detectNonInteractive,
-    isProcessAlive,
-} from "./utils.ts";
-import { checkExitCode, isTmuxAvailable } from "./tmux.ts";
+    reviveAndValidate,
+} from "./lifecycle.ts";
 import {
-    cleanupStaleTmuxRunDirs,
-    cleanupTmuxRunDir,
-} from "./features/bash-tmux.ts";
-import { registerBackgroundJobs } from "./features/background/index.ts";
-import { registerBackgroundCommands } from "./features/background-commands.ts";
-import { registerAgentBackground } from "./features/agent-background.ts";
+    forget as forgetJob,
+    renderSidebar,
+} from "./registry.ts";
 import {
-    CUSTOM_TYPE,
+    EVENT,
     PERSISTED_STATE_SCHEMA_VERSION,
-    type BackgroundJob,
+    type Job,
 } from "./types.ts";
+import { registerBashTool } from "./tools/bash.ts";
+import { registerBashBgTool } from "./tools/bash-bg.ts";
+import { registerJobsTool } from "./tools/jobs.ts";
+import { registerJobDecideTool } from "./tools/job-decide.ts";
+import { registerAgentBgTool } from "./tools/agent-bg.ts";
+import { registerShortcuts } from "./shortcuts.ts";
+import { registerCommands } from "./commands.ts";
 
 interface PersistedState {
     schemaVersion?: number;
-    jobs?: Array<
-        [string, Omit<BackgroundJob, "proc" | "donePromise" | "resolveDone">]
-    >;
+    jobs?: Array<[string, Omit<Job, "proc" | "donePromise" | "resolveDone">]>;
     jobCounter?: number;
 }
 
-export default function (pi: ExtensionAPI) {
-    const state = new TauState();
+/** 확장 진입점. */
+export default function (pi: ExtensionAPI): void {
+    const reg = new BackgroundRegistry();
 
-    registerBackgroundJobs(pi, state);
-    registerBackgroundCommands(pi, state);
-    registerAgentBackground(pi, state);
+    // ── 툴 등록 ───────────────────────────────────────────────────
+    const originalBash = createBashTool(process.cwd());
+    registerBashTool(pi, reg, originalBash);
+    registerBashBgTool(pi, reg);
+    registerJobsTool(pi, reg);
+    registerJobDecideTool(pi, reg);
+    registerAgentBgTool(pi, reg);
 
+    // ── 단축키 / 커맨드 ───────────────────────────────────────────
+    registerShortcuts(pi, reg);
+    registerCommands(pi, reg);
+
+    // ── tool_call 핸들러 ──────────────────────────────────────────
     pi.on("tool_call", async (event): Promise<ToolCallEventResult> => {
-        // Agent backgrounding: when the user has pressed Ctrl+B during agent
-        // processing, refuse to run any further tool calls. The empty reason
-        // tells the agent to stop cleanly without retrying.
-        if (state.agentBackgrounded) {
+        // agentPaused 상태면 모든 툴 호출을 빈 사유로 차단해 깨끗하게 양보한다.
+        if (reg.agentPaused) {
             return { block: true, reason: "" };
         }
 
-        // Pending job decision: when a bash command was auto-backgrounded by
-        // the 15s timeout, the agent must call job_decide or jobs before any
-        // other tool will run. This keeps the agent focused on the decision.
+        // 타임아웃된 백그라운드 잡이 결정 대기를 강제한다.
         if (
-            state.pendingDecisionJobId !== undefined &&
+            reg.pendingDecisionJobId !== undefined &&
             event.toolName !== "job_decide" &&
             event.toolName !== "jobs" &&
             event.toolName !== "bash"
         ) {
-            const job = state.backgroundJobs.get(state.pendingDecisionJobId);
+            const job = reg.jobs.get(reg.pendingDecisionJobId);
             const status =
                 job?.status === "running"
                     ? "still running"
                     : (job?.status ?? "unknown");
             return {
                 block: true,
-                reason: `A background job (${state.pendingDecisionJobId}) is awaiting your decision (${status}). Use job_decide or jobs first.`,
+                reason: `A background job (${reg.pendingDecisionJobId}) is awaiting your decision (${status}). Use job_decide or jobs first.`,
             };
         }
 
         return {};
     });
 
+    // ── 세션 시작 ─────────────────────────────────────────────────
     pi.on("session_start", async (_event, ctx) => {
-        state.tmuxAvailable = isTmuxAvailable();
-        if (!state.tmuxAvailable && !state.tmuxWarningShown) {
-            state.tmuxWarningShown = true;
+        reg.tmuxAvailable = isTmuxAvailable();
+        if (!reg.tmuxAvailable && !reg.tmuxWarningShown) {
+            reg.tmuxWarningShown = true;
             ctx.ui.notify(
                 "⚠️ tmux not found — using direct process management",
                 "warning"
             );
         }
 
-        state.nonInteractive = detectNonInteractive(
+        reg.nonInteractive = detectNonInteractive(
             process.argv,
             Boolean(process.stdin.isTTY)
         );
 
-        if (state.tmuxAvailable) {
-            cleanupStaleTmuxRunDirs();
+        if (reg.tmuxAvailable) {
+            cleanupStaleTmuxArtifacts();
         }
 
+        // 직렬화된 백그라운드 잡 상태 복원 — 마지막 쓰기가 이김.
         const entries = ctx.sessionManager.getEntries();
         const stateEntries = entries.filter(
             (e) =>
                 e.type === "custom" &&
-                (e as { customType?: string }).customType === CUSTOM_TYPE.state
+                (e as { customType?: string }).customType === EVENT.state
         ) as Array<{ type: "custom"; customType: string; data: unknown }>;
 
-        // Apply in order — last entry wins. Oldest entries first so newer
-        // writes overwrite them.
         for (const entry of stateEntries) {
             const data = entry.data as PersistedState;
             if (data.jobs) {
-                for (const [id, jobData] of data.jobs) {
-                    if (jobData.status === "running") {
-                        const tmux = jobData.tmux;
-                        if (tmux && "exitCodeFile" in tmux) {
-                            const code = checkExitCode(tmux.exitCodeFile);
-                            if (code !== undefined) {
-                                jobData.status = "completed";
-                                jobData.exitCode = code;
-                            }
-                        } else if (!isProcessAlive(jobData.pid)) {
-                            jobData.status = "completed";
-                        }
+                for (const [id, job] of data.jobs) {
+                    reviveAndValidate(reg, job);
+                    if (job.status !== "running") {
+                        // 살아있지 않으면 즉시 카운터에 반영하고 map에서 제거.
+                        forgetJob(reg, job);
+                    } else {
+                        reg.jobs.set(id, job);
                     }
-                    state.backgroundJobs.set(id, jobData);
                 }
             }
             if (typeof data.jobCounter === "number") {
-                state.jobCounter = Math.max(state.jobCounter, data.jobCounter);
+                reg.counter = Math.max(reg.counter, data.jobCounter);
             }
         }
 
         cleanupStaleLogs();
     });
 
+    // ── 세션 종료 ─────────────────────────────────────────────────
     pi.on("session_shutdown", async (_event, _ctx) => {
-        cleanupTmuxRunDir();
-
-        pi.appendEntry(CUSTOM_TYPE.state, {
+        pi.appendEntry(EVENT.state, {
             schemaVersion: PERSISTED_STATE_SCHEMA_VERSION,
-            jobs: Array.from(state.backgroundJobs.entries()).map(
-                ([id, job]) => [
-                    id,
-                    {
-                        ...job,
-                        proc: undefined,
-                        donePromise: undefined,
-                        resolveDone: undefined,
-                    },
-                ]
-            ),
-            jobCounter: state.jobCounter,
+            jobs: Array.from(reg.jobs.entries()).map(([id, job]) => [
+                id,
+                {
+                    ...job,
+                    proc: undefined,
+                    donePromise: undefined,
+                    resolveDone: undefined,
+                },
+            ]),
+            jobCounter: reg.counter,
         });
     });
 }
