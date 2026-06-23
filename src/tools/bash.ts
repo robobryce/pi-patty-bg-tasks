@@ -42,7 +42,6 @@ import {
     killProcessTree,
     killTmuxWindow,
     pollExitSentinel,
-    readExitSentinel,
     sessionNameForGitRoot,
     spawnDetached,
     spawnTmuxWindow,
@@ -439,18 +438,12 @@ async function runViaTmux(
                 onOversize: () => killTmuxWindow(tmuxCtx.windowId),
             });
 
-            const bgPoll = nodeSetTimeout(function tick() {
-                const code = readExitSentinel(tmuxCtx.exitCodeFile);
-                if (code === undefined) {
-                    bgPoll.refresh();
-                    return;
-                }
-                clearTimeout(bgPoll);
+            // sentinel 폴링 → 완료 시 정리.
+            pollExitSentinel({ file: tmuxCtx.exitCodeFile }).then((code) => {
                 cancelStall();
                 killTmuxWindow(tmuxCtx.windowId);
                 completeJob({ job, code, reg, pi, ctx });
-            }, 500);
-            bgPoll.unref();
+            });
 
             reg.pendingDecisionJobId = id;
 
