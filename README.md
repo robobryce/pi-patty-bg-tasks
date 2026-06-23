@@ -21,7 +21,7 @@ Background-task extension for the [pi](https://github.com/earendil-works/pi-mono
 | Shortcut | Action |
 |----------|--------|
 | **Ctrl+Shift+B** | Background the current foreground process, or resume a paused agent |
-| **Ctrl+J** / **Shift+Down** | Open the task list UI |
+| **Ctrl+Shift+J** / **Shift+Down** | Open the task list UI |
 | **Ctrl+Shift+X** | Kill the most recently started running job |
 
 ### Slash Commands

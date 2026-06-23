@@ -62,7 +62,7 @@ Or add to `~/.pi/agent/settings.json`:
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+Shift+B` | Background a running bash/agent, or resume a paused agent |
-| `Ctrl+J` / `Shift+Down` | Open the background-task list |
+| `Ctrl+Shift+J` / `Shift+Down` | Open the background-task list |
 | `Ctrl+Shift+X` | Kill the most recently started running job |
 
 ## Commands
@@ -132,8 +132,8 @@ src/
   lifecycle.ts          watchProgress, watchStalls, notifyFinished, scheduleTimeout,
                         markTerminal, buildTimeoutNotice, createCompletionPromise,
                         reviveAndValidate, cleanupStaleLogs, cleanupStaleTmuxArtifacts
-  ui.ts                 showTaskDetail, showTaskList — Ctrl+J TUI
-  shortcuts.ts          Ctrl+Shift+B, Ctrl+J/Shift+Down, Ctrl+Shift+X 등록
+  ui.ts                 showTaskDetail, showTaskList — Ctrl+Shift+J TUI
+  shortcuts.ts          Ctrl+Shift+B, Ctrl+Shift+J/Shift+Down, Ctrl+Shift+X 등록
   commands.ts           /bg, /fg, /jobs 등록
   tools/
     bash.ts             bash 툴 오버라이드 + runDirect/runViaTmux

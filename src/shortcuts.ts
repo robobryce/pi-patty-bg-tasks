@@ -23,7 +23,7 @@ export function registerShortcuts(
         handler: async (ctx) => handleCtrlB(reg, pi, ctx),
     });
 
-    pi.registerShortcut("ctrl+j", {
+    pi.registerShortcut("ctrl+shift+j", {
         description: "백그라운드 작업 목록 열기",
         handler: async (ctx) => showTaskList(reg, ctx),
     });
