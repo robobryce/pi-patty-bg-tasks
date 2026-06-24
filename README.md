@@ -1,8 +1,10 @@
 # pi-patty-bg-tasks
 
-[한국어](README.ko.md)
+<p align="center">
+  <strong>English</strong> · <a href="README.ko.md">한국어</a> · <a href="README.zh.md">中文</a>
+</p>
 
-**Run long commands without blocking the agent. Auto-background after 15 seconds, manual background with Ctrl+Shift+B, and a full job manager — all matching Claude Code's background task UX.**
+**Claude Code's background task experience, brought to Pi.** Run long commands without blocking the agent — auto-background after 15 seconds, manual background with Ctrl+Shift+B, output capture, stall detection, and a full job manager.
 
 ## Install
 
@@ -24,7 +26,7 @@ Requires Pi v0.37+. tmux is optional but recommended (enables tmux-backed proces
 
 **Claude Code behavior, on Pi.** The background/foreground UX — Ctrl+B to background, output capture, completion notifications, stall detection — is modeled directly on Claude Code's implementation. Same message format, same terminal-native icons, same "agent keeps working" flow.
 
-**Job manager built in.** `/bg-list` gives you an interactive task manager with localized UI (English and Korean). List, inspect output, kill, or attach to any background job.
+**Job manager built in.** `/bg-list` gives you an interactive task manager. List, inspect output, kill, or attach to any background job.
 
 ## Quick Start
 
