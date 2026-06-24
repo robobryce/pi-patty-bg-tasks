@@ -11,10 +11,7 @@
  * 키보드 단축키와 슬래시 커맨드도 함께 등록한다.
  */
 
-import type {
-    ExtensionAPI,
-    ToolCallEventResult,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBashTool } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
 import { isTmuxAvailable } from "./proc.ts";
@@ -63,28 +60,6 @@ export default function (pi: ExtensionAPI): void {
     registerShortcuts(pi, reg);
     registerCommands(pi, reg);
 
-    // ── tool_call 핸들러 ──────────────────────────────────────────
-    pi.on("tool_call", async (event): Promise<ToolCallEventResult> => {
-        // 타임아웃된 백그라운드 잡이 결정 대기를 강제한다.
-        if (
-            reg.pendingDecisionJobId !== undefined &&
-            event.toolName !== "job_decide" &&
-            event.toolName !== "jobs" &&
-            event.toolName !== "bash"
-        ) {
-            const job = reg.jobs.get(reg.pendingDecisionJobId);
-            const status =
-                job?.status === "running"
-                    ? "still running"
-                    : (job?.status ?? "unknown");
-            return {
-                block: true,
-                reason: `A background job (${reg.pendingDecisionJobId}) is awaiting your decision (${status}). Use job_decide or jobs first.`,
-            };
-        }
-
-        return {};
-    });
 
     // ── 세션 시작 ─────────────────────────────────────────────────
     pi.on("session_start", async (_event, ctx) => {

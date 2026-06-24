@@ -1,6 +1,6 @@
 {
     "name": "pi-patty-bg-tasks",
-    "version": "0.2.1",
+    "version": "0.2.2",
     "description": "Background tasks extension for pi. Backgrounded bash with 15s auto-background timeout, agent_bg for detached pi -p, plus search/cleanup/stats on the jobs tool.",
     "type": "module",
     "keywords": [
