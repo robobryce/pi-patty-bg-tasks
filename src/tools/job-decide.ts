@@ -7,13 +7,12 @@
  *   - check: 현재 출력 확인
  */
 
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import type { BackgroundRegistry } from "../state.ts";
 import { OUTPUT_PREVIEW_CHARS } from "../types.ts";
 import { findJob, readLogTail, renderSidebar } from "../registry.ts";
-import { markKilledSilently, terminateJob } from "../lifecycle.ts";
+import { terminateJobSilently } from "../lifecycle.ts";
 import { textBlock } from "../format.ts";
 
 /** `job_decide` 툴을 등록한다. */
@@ -24,17 +23,17 @@ export function registerJobDecideTool(
     pi.registerTool({
         name: "job_decide",
         label: "Job Decision",
-        description: "타임아웃된 백그라운드 잡에 대해 keep / kill / check 결정.",
-        promptSnippet: "타임아웃된 백그라운드 잡에 결정",
+        description: "Decide whether to keep, kill, or check a timed-out background job.",
+        promptSnippet: "Decide what to do with a timed-out background job",
         promptGuidelines: [
-            "keep: 계속 실행",
-            "kill: 종료",
-            "check: 현재 출력 확인",
+            "keep: let the job continue running",
+            "kill: terminate the job",
+            "check: inspect the current output",
         ],
         parameters: Type.Object({
-            jobId: Type.String({ description: "결정할 잡 ID" }),
+            jobId: Type.String({ description: "Job ID to decide on" }),
             decision: StringEnum(["keep", "kill", "check"] as const, {
-                description: "keep = 계속, kill = 종료, check = 출력 확인",
+                description: "keep = continue, kill = terminate, check = inspect output",
             }),
         }),
 
@@ -53,9 +52,7 @@ export function registerJobDecideTool(
 
             switch (p.decision) {
                 case "kill": {
-                    if (job.status === "running") terminateJob(job);
-                    markKilledSilently(job);
-                    reg.pendingDecisionJobId = undefined;
+                    terminateJobSilently(reg, job);
                     renderSidebar(reg, ctx);
                     return {
                         content: [textBlock(`Killed ${job.name ?? job.id}.`)],

@@ -7,9 +7,8 @@
  */
 
 import { closeSync, openSync, readSync, statSync, unlinkSync, readFileSync } from "node:fs";
-import { formatDuration, statusLabel, formatJobLine, truncateTail } from "./format.ts";
+import { formatDuration, truncateTail } from "./format.ts";
 import {
-    OUTPUT_PREVIEW_CHARS,
     PREVIEW_CHARS,
     RECENT_TERMINAL_KEEP,
     type Job,
@@ -78,19 +77,29 @@ export function cleanupTerminal(reg: BackgroundRegistry): {
 } {
     let purged = 0;
     let bytes = 0;
+    const deletedLogs = new Set<string>();
+    const deleteOnce = (logPath: string): number => {
+        if (deletedLogs.has(logPath)) return 0;
+        deletedLogs.add(logPath);
+        return deleteLogFile(logPath);
+    };
+
     const idsToRemove: string[] = [];
     for (const [id, job] of reg.jobs.entries()) {
         if (job.status !== "running") {
             idsToRemove.push(id);
-            bytes += deleteLogFile(job.logPath);
+            bytes += deleteOnce(job.logPath);
             purged++;
         }
     }
     for (const id of idsToRemove) {
         reg.jobs.delete(id);
     }
-    // recent-terminal 링도 종료된 잡이므로 함께 정리.
-    purged += reg.recentTerminal.length;
+    // recent-terminal 링도 종료된 잡이므로 로그 파일까지 함께 정리.
+    for (const job of reg.recentTerminal) {
+        bytes += deleteOnce(job.logPath);
+        purged++;
+    }
     reg.recentTerminal.length = 0;
     return { purged, bytesReclaimed: bytes };
 }
@@ -194,15 +203,20 @@ export function isRunning(job: Job): boolean {
 
 /** 잡의 로그 파일 끝부분만 읽는다. 대용량 파일에서도 O(maxChars)만 읽는다. */
 export function readLogTail(job: Job, maxChars: number): string {
+    const fileTail = readBoundedTail(job.logPath, maxChars);
+    if (fileTail && fileTail.length > 0) return fileTail;
     if (job.tmux) {
-        const out = capturePane(job.tmux.windowId, TMUX_PANE_LINES, job.tmux.outputFile);
-        return truncateTail(out, maxChars);
+        return truncateTail(capturePane(job.tmux.windowId, TMUX_PANE_LINES), maxChars);
     }
+    return "(no output yet)";
+}
+
+function readBoundedTail(logPath: string, maxChars: number): string | undefined {
     try {
-        const { size } = statSync(job.logPath);
-        if (size <= maxChars) return readFileSync(job.logPath, "utf-8");
+        const { size } = statSync(logPath);
+        if (size <= maxChars) return readFileSync(logPath, "utf-8");
         // 테일만 읽기 — 전체 파일을 메모리에 올리지 않는다.
-        const fd = openSync(job.logPath, "r");
+        const fd = openSync(logPath, "r");
         try {
             const buf = Buffer.alloc(maxChars);
             readSync(fd, buf, 0, maxChars, Math.max(0, size - maxChars));
@@ -211,6 +225,6 @@ export function readLogTail(job: Job, maxChars: number): string {
             closeSync(fd);
         }
     } catch {
-        return "(no output yet)";
+        return undefined;
     }
 }

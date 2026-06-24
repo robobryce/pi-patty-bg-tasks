@@ -12,14 +12,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
     DEFAULT_TIMEOUT_MS,
     EVENT,
-    QUICK_COMPLETION_MS,
     type Job,
     type JobStatus,
     type UiContext,
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
 import {
-    clearTimer,
     killProcessTree,
     killTmuxWindow,
     processExists,
@@ -38,21 +36,20 @@ export { watchProgress, watchStalls } from "./monitoring.ts";
  */
 export function completeJob(args: {
     job: Job;
-    code: number | null;
+    code: number | null | undefined;
     reg: BackgroundRegistry;
     pi: ExtensionAPI;
     ctx: UiContext;
     shouldNotify?: boolean;
 }): void {
     if (args.job.status !== "running") return;
-    markTerminal(args.job, statusFromExit(args.code), args.code ?? undefined);
+    const finished = findJob(args.reg, args.job.id) ?? args.job;
+    runJobCleanup(args.reg, finished.id);
+    markTerminal(finished, statusFromExit(args.code), args.code ?? undefined);
     if (args.shouldNotify !== false) {
-        const finished = findJob(args.reg, args.job.id);
-        if (finished) {
-            notifyFinished({ job: finished, reg: args.reg, pi: args.pi, ctx: args.ctx });
-            forget(args.reg, finished);
-        }
+        notifyFinished({ job: finished, reg: args.reg, pi: args.pi, ctx: args.ctx });
     }
+    forget(args.reg, finished);
     renderSidebar(args.reg, args.ctx);
 }
 
@@ -92,7 +89,7 @@ export function statusFromExit(code: number | null | undefined): JobStatus {
  * 진입점이 된다.
  */
 /** 멱등성 보장 — 이미 donePromise가 있으면 재생성하지 않는다. */
-export function createCompletionPromise(job: Job): void {
+export function ensureCompletionPromise(job: Job): void {
     if (job.donePromise) return;
     let resolveDone: (() => void) | undefined;
     job.donePromise = new Promise<void>((resolve) => {
@@ -110,6 +107,16 @@ export function markKilledSilently(job: Job): void {
     job.outputConsumed = true;
 }
 
+/** 잡을 조용히 종료하고 등록된 타이머/폴러까지 정리한다. */
+export function terminateJobSilently(reg: BackgroundRegistry, job: Job): void {
+    terminateJob(job);
+    markKilledSilently(job);
+    runJobCleanup(reg, job.id);
+    if (reg.pendingDecisionJobId === job.id) {
+        reg.pendingDecisionJobId = undefined;
+    }
+}
+
 /** 종료 코드 패턴이 SIGKILL/SIGTERM인지 확인한다 — 정상 종료를 기대하는
  *  호출자가 의도된 취소로 취급할 수 있도록 한다. */
 export function isSignalExit(code: number | null | undefined): boolean {
@@ -117,6 +124,31 @@ export function isSignalExit(code: number | null | undefined): boolean {
 }
 
 // ─── 잡 정리 ─────────────────────────────────────────────────────────
+
+/** 잡별 타이머/폴러 정리 콜백을 등록한다. */
+export function registerJobCleanup(
+    reg: BackgroundRegistry,
+    jobId: string,
+    cleanup: () => void
+): void {
+    const set = reg.jobCleanups.get(jobId) ?? new Set<() => void>();
+    set.add(cleanup);
+    reg.jobCleanups.set(jobId, set);
+}
+
+/** 잡별 타이머/폴러를 한 번만 정리한다. */
+export function runJobCleanup(reg: BackgroundRegistry, jobId: string): void {
+    const cleanups = reg.jobCleanups.get(jobId);
+    if (!cleanups) return;
+    reg.jobCleanups.delete(jobId);
+    for (const cleanup of cleanups) {
+        try {
+            cleanup();
+        } catch {
+            /* 정리는 best-effort */
+        }
+    }
+}
 
 /**
  * 잡을 정리한다 — tmux 창이면 kill-window, 살아있는 프로세스 그룹이면
@@ -137,6 +169,38 @@ export function terminateJob(job: Job): void {
     }
 }
 
+// ─── 포그라운드 백그라운딩 ───────────────────────────────────────────
+
+/** 현재 포그라운드 명령을 백그라운드로 넘기고 에이전트 follow-up을 보낸다. */
+export function backgroundActiveForeground(
+    reg: BackgroundRegistry,
+    pi: ExtensionAPI,
+    ctx: UiContext
+): boolean {
+    if (!reg.activeToolCallId) return false;
+    const toolCallId = reg.activeToolCallId;
+    const slot = reg.foreground.get(toolCallId);
+    if (!slot) return false;
+
+    slot.requestPause("manual");
+    reg.foreground.delete(toolCallId);
+    if (reg.activeToolCallId === toolCallId) reg.activeToolCallId = null;
+    renderSidebar(reg, ctx);
+    ctx.ui.notify("▶ Backgrounded — continuing.", "info");
+    pi.sendMessage(
+        {
+            customType: EVENT.background,
+            content:
+                `Command was manually backgrounded by user. ` +
+                `Output is being captured. ` +
+                `You can continue working — use the jobs tool to check on it later.`,
+            display: true,
+        },
+        { deliverAs: "followUp", triggerTurn: true }
+    );
+    return true;
+}
+
 // ─── 타임아웃 ────────────────────────────────────────────────────────
 
 /**
@@ -145,7 +209,7 @@ export function terminateJob(job: Job): void {
  * 호출자가 조기 종료 시 반드시 clearTimer로 정리해야 한다.
  */
 export function scheduleTimeout(args: {
-    requestPause: () => void;
+    requestPause: (reason: "timeout") => void;
     command: string;
     reg: BackgroundRegistry;
     toolCallId: string;
@@ -161,7 +225,7 @@ export function scheduleTimeout(args: {
             if (slot?.proc.pid) killProcessTree(slot.proc.pid, "SIGTERM");
             return;
         }
-        args.requestPause();
+        args.requestPause("timeout");
     }, ms);
     t.unref();
     return t;
@@ -180,7 +244,7 @@ export function notifyFinished(args: {
     pi: ExtensionAPI;
     ctx: UiContext;
 }): void {
-    const { job, reg, pi, ctx } = args;
+    const { job, pi, ctx } = args;
     if (job.outputConsumed) {
         // 출력은 이미 소비됨 — 통지 없이 정리.
         // registry.forget은 호출 측에서 처리.
@@ -260,6 +324,33 @@ export function buildTimeoutNotice(args: {
     };
 }
 
+/** 타임아웃 의사결정 요청을 기록하고 에이전트 follow-up으로 전달한다. */
+export function requestJobDecision(args: {
+    reg: BackgroundRegistry;
+    pi: ExtensionAPI;
+    job: Job;
+    timeoutMs: number;
+    location: { kind: "pid"; pid: number } | { kind: "tmux"; windowId: string };
+}): void {
+    args.reg.pendingDecisionJobId = args.job.id;
+    const notice = buildTimeoutNotice({
+        jobId: args.job.id,
+        command: args.job.command,
+        logPath: args.job.logPath,
+        timeoutMs: args.timeoutMs,
+        location: args.location,
+    });
+    args.pi.sendMessage(
+        {
+            customType: EVENT.timeout,
+            content: notice.content,
+            display: true,
+            details: notice.details,
+        },
+        { deliverAs: "followUp", triggerTurn: true }
+    );
+}
+
 // ─── 보조 ────────────────────────────────────────────────────────────
 
 /** cwd가 실제로 존재하는지 확인. 존재하지 않으면 명확한 에러를 던진다. */
@@ -310,7 +401,7 @@ export function detectBlockedSleep(command: string): string | null {
  * tmux 종료 코드가 기록되어 있으면 completed로 강제 전환한다.
  */
 export function reviveAndValidate(
-    reg: BackgroundRegistry,
+    _reg: BackgroundRegistry,
     job: Job
 ): "alive" | "completed" {
     if (job.status !== "running") return "completed";
@@ -344,8 +435,8 @@ export function detectNonInteractive(
 
 // ─── 정리 (cleanup) ─────────────────────────────────────────────────
 
-/** 24시간 이상된 /tmp/pi-bg-* 로그 파일을 삭제한다. */
-export function cleanupStaleLogs(): void {
+/** 24시간 이상된 로그와 죽은 pi 프로세스의 tmux 잔여물을 한 번의 /tmp 스캔으로 정리한다. */
+export function cleanupStaleRuntimeArtifacts(args: { tmuxAvailable: boolean }): void {
     const MAX_AGE_MS = 24 * 60 * 60 * 1000;
     let entries;
     try {
@@ -353,43 +444,33 @@ export function cleanupStaleLogs(): void {
     } catch {
         return;
     }
+
     const now = Date.now();
     for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.startsWith("pi-bg-")) continue;
-        const path = `/tmp/${entry.name}`;
-        try {
-            const { mtimeMs } = fsStatSync(path);
-            if (now - mtimeMs > MAX_AGE_MS) fsUnlink(path);
-        } catch {
-            /* 이미 사라진 파일 */
+        const fullPath = pathJoin("/tmp", entry.name);
+        if (entry.isFile() && entry.name.startsWith("pi-bg-")) {
+            try {
+                const { mtimeMs } = fsStatSync(fullPath);
+                if (now - mtimeMs > MAX_AGE_MS) fsUnlink(fullPath);
+            } catch {
+                /* 이미 사라진 파일 */
+            }
+            continue;
         }
-    }
-}
 
-/** 죽은 pi 프로세스의 tmux 잔여물을 정리한다. */
-export function cleanupStaleTmuxArtifacts(): void {
-    const entries = readdirSync("/tmp").filter((e) => e.startsWith("pi-tmux-"));
-    for (const entry of entries) {
-        const pid = parseInt(entry.replace("pi-tmux-", ""), 10);
-        if (pid === process.pid) continue;
+        if (!args.tmuxAvailable || !entry.name.startsWith("pi-tmux-")) continue;
+        const pid = parseInt(entry.name.replace("pi-tmux-", ""), 10);
+        if (!Number.isFinite(pid) || pid === process.pid) continue;
         try {
             process.kill(pid, 0);
             continue;
         } catch {
             /* 죽은 PID */
         }
-        const dir = pathJoin("/tmp", entry);
         try {
-            rmSync(dir, { recursive: true, force: true });
+            rmSync(fullPath, { recursive: true, force: true });
         } catch {
             /* 권한 에러 또는 동시 정리 */
         }
     }
 }
-
-// 의도적으로 export된 헬퍼들 — 사용처에서 참조되므로 보존.
-void findJob;
-void renderSidebar;
-void isSignalExit;
-void clearTimer;
-void QUICK_COMPLETION_MS;

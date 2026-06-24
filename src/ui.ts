@@ -11,10 +11,7 @@ import type { Job, UiContext } from "./types.ts";
 import { OUTPUT_PREVIEW_CHARS, PREVIEW_CHARS } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
 import { formatDuration } from "./format.ts";
-import {
-    markKilledSilently,
-    terminateJob,
-} from "./lifecycle.ts";
+import { terminateJobSilently } from "./lifecycle.ts";
 import {
     forget,
     readLogTail,
@@ -151,19 +148,15 @@ async function showJobActions(
             return true;
         }
         if (action === t.kill) {
-            terminateJob(job);
-            markKilledSilently(job);
-            if (reg.pendingDecisionJobId === job.id) {
-                reg.pendingDecisionJobId = undefined;
-            }
+            terminateJobSilently(reg, job);
             renderSidebar(reg, ctx);
             ctx.ui.notify(t.killed_msg(name), "info");
             return true;
         }
         if (action === t.attach) {
             ctx.ui.setStatus("attach-flow", `Attaching to ${name}...`);
-            const { createCompletionPromise } = await import("./lifecycle.ts");
-            createCompletionPromise(job);
+            const { ensureCompletionPromise } = await import("./lifecycle.ts");
+            ensureCompletionPromise(job);
             await job.donePromise;
             ctx.ui.setStatus("attach-flow", undefined);
             await showOutput(job, ctx, t);

@@ -93,13 +93,15 @@ export interface Job {
 
 /** Transient handle for a foreground bash invocation — Ctrl+Shift+B triggers
  *  `requestPause` to flip the job into background mode mid-flight. */
+export type BackgroundReason = "manual" | "timeout";
+
 export interface ForegroundSlot {
     toolCallId: string;
     proc: ChildProcess;
     command: string;
     logPath: string;
     /** Resolves the foreground race when the command should be backgrounded. */
-    requestPause: () => void;
+    requestPause: (reason: BackgroundReason) => void;
 }
 
 // ─── 에이전트 follow-up 메시지 타입 ───────────────────────────────────────────────────

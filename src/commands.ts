@@ -3,16 +3,22 @@
  *
  *   - /bg: Ctrl+Shift+B와 동일 — 포그라운드 프로세스를 백그라운드로
  *   - /bg-list: 인터랙티브 백그라운드 작업 매니저 열기
+ *   - /bg-version: 현재 로드된 확장 버전/경로 확인
  */
 
+import { readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
     ExtensionAPI,
     ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import type { BackgroundRegistry } from "./state.ts";
-import { EVENT } from "./types.ts";
-import { renderSidebar } from "./registry.ts";
+import { backgroundActiveForeground } from "./lifecycle.ts";
 import { openBgListPanel } from "./ui.ts";
+
+const packageJsonPath = fileURLToPath(new URL("../package.json", import.meta.url));
+const packageRoot = dirname(packageJsonPath);
 
 /** 모든 슬래시 커맨드를 등록한다. */
 export function registerCommands(
@@ -22,26 +28,7 @@ export function registerCommands(
     pi.registerCommand("bg", {
         description: "Background the current foreground process",
         handler: async (_args, ctx) => {
-            if (reg.activeToolCallId) {
-                const slot = reg.foreground.get(reg.activeToolCallId);
-                if (slot) {
-                    slot.requestPause();
-                    renderSidebar(reg, ctx);
-                    ctx.ui.notify("▶ Backgrounded — continuing.", "info");
-                    pi.sendMessage(
-                        {
-                            customType: EVENT.background,
-                            content:
-                                `Command was manually backgrounded by user. ` +
-                                `Output is being captured. ` +
-                                `You can continue working — use the jobs tool to check on it later.`,
-                            display: true,
-                        },
-                        { deliverAs: "followUp", triggerTurn: true }
-                    );
-                    return;
-                }
-            }
+            if (backgroundActiveForeground(reg, pi, ctx)) return;
             ctx.ui.notify("No running process to background.", "warning");
         },
     });
@@ -50,6 +37,20 @@ export function registerCommands(
         description: "Open the interactive background task manager",
         handler: async (_args, ctx: ExtensionCommandContext) => {
             await openBgListPanel(reg, ctx);
+        },
+    });
+
+    pi.registerCommand("bg-version", {
+        description: "Show the loaded background tasks extension version",
+        handler: async (_args, ctx) => {
+            const pkg = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
+                name?: string;
+                version?: string;
+            };
+            ctx.ui.notify(
+                `${pkg.name ?? "pi-patty-bg-tasks"}@${pkg.version ?? "unknown"} loaded from ${packageRoot}`,
+                "info"
+            );
         },
     });
 }

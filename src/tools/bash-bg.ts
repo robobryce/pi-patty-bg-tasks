@@ -11,23 +11,16 @@
  *     `bg-timeout` 흐름으로 전환된다.
  */
 
-import { mkdirSync, openSync, closeSync } from "node:fs";
-import { dirname } from "node:path";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { BackgroundRegistry } from "../state.ts";
 import {
-    DEFAULT_TIMEOUT_MS,
-    EVENT,
-    QUICK_COMPLETION_MS as _Q,
     type Job,
     type TmuxContext,
     type UiContext,
 } from "../types.ts";
 import {
     getGitRoot,
-    killProcessTree,
     killTmuxWindow,
     pollExitSentinel,
     sessionNameForGitRoot,
@@ -36,13 +29,14 @@ import {
 } from "../proc.ts";
 import { add, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
 import {
-    buildTimeoutNotice,
     completeJob,
-    createCompletionPromise,
+    ensureCompletionPromise,
     isAutoBackgroundAllowed,
+    registerJobCleanup,
+    requestJobDecision,
     isBlankCommand,
-    markTerminal,
     requireExistingCwd,
+    terminateJobSilently,
     watchStalls,
 } from "../lifecycle.ts";
 import { textBlock } from "../format.ts";
@@ -65,29 +59,29 @@ export function registerBashBgTool(
         name: "bash_bg",
         label: "Background Bash",
         description:
-            "Bash 명령을 백그라운드에서 즉시 실행. 출력은 /tmp/pi-bg-<jobId>.log. " +
-            "선택적 timeout(초)이 지나면 자동 bg-timeout 흐름으로 전환된다.",
-        promptSnippet: "장기 실행 명령을 백그라운드로 시작",
+            "Start a bash command in the background immediately. Output is saved to " +
+            "/tmp/pi-bg-<jobId>.log. Optional timeouts trigger the bg-timeout flow.",
+        promptSnippet: "Start long-running commands directly in the background",
         promptGuidelines: [
-            "처음부터 백그라운드 실행이 확실할 때 사용.",
-            "이름을 부여하면 jobs list에서 추적이 쉬워진다.",
+            "Use this when a command should definitely start in the background.",
+            "Give the job a name when it will be easier to track in jobs list.",
         ],
         parameters: Type.Object({
-            command: Type.String({ description: "실행할 명령" }),
+            command: Type.String({ description: "Command to run" }),
             name: Type.Optional(
                 Type.String({
-                    description: "선택적 라벨. jobs list에 표시된다.",
+                    description: "Optional label shown in jobs list.",
                 })
             ),
             timeout: Type.Optional(
                 Type.Number({
                     description:
-                        "선택적 타임아웃(초). 초과 시 자동 bg-timeout 흐름으로 전환된다.",
+                        "Optional timeout in seconds. When exceeded, the job enters the bg-timeout flow.",
                 })
             ),
             notify: Type.Optional(
                 Type.Boolean({
-                    description: "완료 시 알림 (기본: true)",
+                    description: "Notify on completion (default: true)",
                 })
             ),
         }),
@@ -141,7 +135,7 @@ export function registerBashBgTool(
                 toolCallId,
                 isBackgrounded: true,
             };
-            createCompletionPromise(job);
+            ensureCompletionPromise(job);
             add(reg, job);
 
             const cancelStall = watchStalls({
@@ -149,33 +143,27 @@ export function registerBashBgTool(
                 command: p.command,
                 logPath,
                 pi,
-                onOversize: () => {
-                    if (spawned.proc.pid) killProcessTree(spawned.proc.pid, "SIGTERM");
-                    job.outputConsumed = true;
-                    markTerminal(job, "killed");
-                },
+                onOversize: () => terminateJobSilently(reg, job),
+            });
+
+            const cancelTimeout = timeoutMs !== undefined
+                ? armTimeoutForSpawnedJob({ reg, pi, ctx: ctx2, job, timeoutMs })
+                : () => {};
+            registerJobCleanup(reg, id, () => {
+                cancelTimeout();
+                cancelStall();
             });
 
             spawned.proc.on("close", (code) => {
+                cancelTimeout();
                 cancelStall();
                 completeJob({ job, code, reg, pi, ctx: ctx2, shouldNotify });
             });
             spawned.proc.on("error", () => {
+                cancelTimeout();
                 cancelStall();
                 completeJob({ job, code: 1, reg, pi, ctx: ctx2, shouldNotify });
             });
-
-            // timeout이 있으면 timeout-tick 별도 시작.
-            if (timeoutMs !== undefined) {
-                armTimeoutForSpawnedJob({
-                    reg,
-                    pi,
-                    ctx: ctx2,
-                    job,
-                    timeoutMs,
-                    shouldNotify,
-                });
-            }
 
             renderSidebar(reg, ctx2);
             return {
@@ -233,26 +221,38 @@ function spawnViaTmux(args: {
         isBackgrounded: true,
         tmux: tmuxCtx,
     };
-    createCompletionPromise(job);
+    ensureCompletionPromise(job);
     add(args.reg, job);
 
-    const cancelStall = args.pi && args.shouldNotify
-        ? watchStalls({
-              jobId: id,
-              command: args.command,
-              logPath,
+    const cancelStall = watchStalls({
+        jobId: id,
+        command: args.command,
+        logPath,
+        pi: args.pi,
+        onOversize: () => terminateJobSilently(args.reg, job),
+    });
+    const cancelTimeout = args.timeoutMs !== undefined
+        ? armTimeoutForSpawnedJob({
+              reg: args.reg,
               pi: args.pi,
-              onOversize: () => killTmuxWindow(tmuxCtx.windowId),
+              ctx: args.ctx,
+              job,
+              timeoutMs: args.timeoutMs,
           })
         : () => {};
+    const sentinel = new AbortController();
+    registerJobCleanup(args.reg, id, () => {
+        sentinel.abort();
+        cancelTimeout();
+        cancelStall();
+    });
 
     // sentinel 파일 폴링 — 6h 안전 타임아웃 포함.
-    pollExitSentinel({ file: tmuxCtx.exitCodeFile }).then((code) => {
-        cancelStall();
+    pollExitSentinel({ file: tmuxCtx.exitCodeFile, signal: sentinel.signal }).then((code) => {
         killTmuxWindow(tmuxCtx.windowId);
         completeJob({
             job,
-            code,
+            code: code ?? undefined,
             reg: args.reg,
             pi: args.pi,
             ctx: args.ctx,
@@ -269,12 +269,14 @@ function armTimeoutForSpawnedJob(args: {
     ctx: BashBgCtx;
     job: Job;
     timeoutMs: number;
-    shouldNotify: boolean;
-}): void {
+}): () => void {
     const timer = setTimeout(() => {
+        const live = args.reg.jobs.get(args.job.id);
+        if (live !== args.job || args.job.status !== "running") return;
         if (args.reg.nonInteractive) return;
         if (!isAutoBackgroundAllowed(args.job.command)) {
-            terminateJobRef(args.job);
+            terminateJobSilently(args.reg, args.job);
+            renderSidebar(args.reg, args.ctx);
             return;
         }
         // bg-timeout 흐름: 에이전트에게 결정 요청.
@@ -282,41 +284,14 @@ function armTimeoutForSpawnedJob(args: {
             args.job.tmux
                 ? ({ kind: "tmux", windowId: args.job.tmux.windowId } as const)
                 : ({ kind: "pid", pid: args.job.pid } as const);
-        args.reg.pendingDecisionJobId = args.job.id;
-        args.pi.sendMessage(
-            {
-                customType: EVENT.timeout,
-                content: buildTimeoutNotice({
-                    jobId: args.job.id,
-                    command: args.job.command,
-                    logPath: args.job.logPath,
-                    timeoutMs: args.timeoutMs,
-                    location,
-                }).content,
-                display: true,
-                details: {
-                    jobId: args.job.id,
-                    logPath: args.job.logPath,
-                    command: args.job.command,
-                },
-            },
-            { deliverAs: "followUp", triggerTurn: true }
-        );
+        requestJobDecision({
+            reg: args.reg,
+            pi: args.pi,
+            job: args.job,
+            timeoutMs: args.timeoutMs,
+            location,
+        });
     }, args.timeoutMs);
     timer.unref();
+    return () => clearTimeout(timer);
 }
-
-function terminateJobRef(job: Job): void {
-    if (job.tmux) {
-        killTmuxWindow(job.tmux.windowId);
-        return;
-    }
-    if (job.pid > 0) killProcessTree(job.pid, "SIGTERM");
-}
-
-void mkdirSync;
-void openSync;
-void closeSync;
-void dirname;
-void DEFAULT_TIMEOUT_MS;
-void _Q;

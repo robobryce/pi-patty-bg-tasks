@@ -6,14 +6,16 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { killProcessTree, processExists } from "../proc.ts";
 import {
-    createCompletionPromise,
+    backgroundActiveForeground,
+    ensureCompletionPromise,
     isSignalExit,
     markKilledSilently,
     markTerminal,
+    requestJobDecision,
     statusFromExit,
 } from "../lifecycle.ts";
 import { BackgroundRegistry } from "../state.ts";
-import type { Job } from "../types.ts";
+import { EVENT, type Job, type UiContext } from "../types.ts";
 
 void describe("processExists", () => {
     void it("현재 프로세스는 살아있다", () => {
@@ -88,7 +90,7 @@ void describe("markTerminal 멱등성", () => {
     });
 });
 
-function makeJob(): Job {
+function makeJob(overrides: Partial<Job> = {}): Job {
     return {
         id: "job-mt-1",
         command: "x",
@@ -98,13 +100,14 @@ function makeJob(): Job {
         logPath: "/tmp/x",
         toolCallId: "tc-1",
         isBackgrounded: false,
+        ...overrides,
     };
 }
 
-void describe("createCompletionPromise", () => {
+void describe("ensureCompletionPromise", () => {
     void it("donePromise 생성 + resolveDone로 해소 가능", async () => {
         const job = makeJob();
-        createCompletionPromise(job);
+        ensureCompletionPromise(job);
         assert.ok(job.donePromise);
         assert.ok(job.resolveDone);
         let resolved = false;
@@ -136,3 +139,67 @@ void describe("BackgroundRegistry 기본", () => {
         assert.equal(reg.totalStarted, 0);
     });
 });
+
+void describe("backgroundActiveForeground", () => {
+    void it("manual background sends bg-manual without creating a timeout decision", () => {
+        const reg = new BackgroundRegistry();
+        const sent: { customType?: string }[] = [];
+        const notifications: string[] = [];
+        let pauseReason: string | undefined;
+        reg.activeToolCallId = "tc-manual";
+        reg.foreground.set("tc-manual", {
+            toolCallId: "tc-manual",
+            proc: { pid: -1 } as never,
+            command: "python long.py",
+            logPath: "/tmp/manual.log",
+            requestPause: (reason) => {
+                pauseReason = reason;
+            },
+        });
+
+        const ok = backgroundActiveForeground(
+            reg,
+            { sendMessage: (msg: { customType?: string }) => sent.push(msg) } as never,
+            makeCtx(notifications)
+        );
+
+        assert.equal(ok, true);
+        assert.equal(pauseReason, "manual");
+        assert.equal(reg.pendingDecisionJobId, undefined);
+        assert.equal(sent[0]?.customType, EVENT.background);
+        assert.equal(notifications[0], "▶ Backgrounded — continuing.");
+    });
+});
+
+void describe("requestJobDecision", () => {
+    void it("timeout background records pending decision and sends bg-timeout", () => {
+        const reg = new BackgroundRegistry();
+        const sent: { customType?: string; details?: { jobId?: string } }[] = [];
+        const job = makeJob({ id: "job-timeout", command: "pnpm test" });
+
+        requestJobDecision({
+            reg,
+            pi: { sendMessage: (msg: { customType?: string; details?: { jobId?: string } }) => sent.push(msg) } as never,
+            job,
+            timeoutMs: 15_000,
+            location: { kind: "pid", pid: 123 },
+        });
+
+        assert.equal(reg.pendingDecisionJobId, "job-timeout");
+        assert.equal(sent[0]?.customType, EVENT.timeout);
+        assert.equal(sent[0]?.details?.jobId, "job-timeout");
+    });
+});
+
+function makeCtx(notifications: string[] = []): UiContext {
+    return {
+        ui: {
+            notify: (message) => notifications.push(message),
+            setWidget: () => {},
+            setStatus: () => {},
+            theme: { fg: (_colour, text) => text },
+            select: async () => undefined,
+            editor: async () => undefined,
+        },
+    };
+}

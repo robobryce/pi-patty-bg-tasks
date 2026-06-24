@@ -17,6 +17,8 @@ export class BackgroundRegistry {
     activeToolCallId: string | null = null;
     /** Job awaiting a decision via `job_decide`. */
     pendingDecisionJobId: string | undefined;
+    /** Per-job timers/pollers that must be canceled when a job is killed or completed. */
+    jobCleanups = new Map<string, Set<() => void>>();
 
     /** Whether tmux is available for the tmux-backed bash backend. */
     tmuxAvailable = false;

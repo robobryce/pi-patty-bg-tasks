@@ -11,7 +11,6 @@
  *   - stats: 집계 메트릭 (v0.2 신규)
  */
 
-import { openSync, readSync, closeSync, unlinkSync, readFileSync } from "node:fs";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
@@ -19,29 +18,22 @@ import type { BackgroundRegistry } from "../state.ts";
 import {
     OUTPUT_PREVIEW_CHARS,
     PREVIEW_CHARS,
-    type Job,
     type UiContext,
 } from "../types.ts";
-import {
-    processExists,
-    killProcessTree as _kp,
-    killTmuxWindow,
-} from "../proc.ts";
+import { processExists } from "../proc.ts";
 import {
     cleanupTerminal,
     findJob,
-    forget,
     getStats,
     readLogTail,
     renderSidebar,
 } from "../registry.ts";
-import { formatDuration, formatJobLine, textBlock, truncateTail } from "../format.ts";
+import { formatDuration, formatJobLine, textBlock } from "../format.ts";
+import { searchLogs } from "../log-search.ts";
 import {
-    createCompletionPromise,
-    isSignalExit,
-    markKilledSilently,
+    ensureCompletionPromise,
     markTerminal,
-    terminateJob,
+    terminateJobSilently,
 } from "../lifecycle.ts";
 
 /** `jobs` 툴을 등록한다. */
@@ -53,16 +45,16 @@ export function registerJobsTool(
         name: "jobs",
         label: "Background Jobs",
         description:
-            "백그라운드 잡 관리. list / output / kill / attach / search / cleanup / stats.",
-        promptSnippet: "백그라운드 잡 조회·관리",
+            "Manage background jobs: list, output, kill, attach, search, cleanup, and stats.",
+        promptSnippet: "Inspect and manage background jobs",
         promptGuidelines: [
-            "list: 모든 잡 보기",
-            "output: 특정 잡의 로그 꼬리",
-            "kill: 잡 종료",
-            "attach: 잡 완료까지 대기",
-            "search: 정규식으로 모든 출력 검색",
-            "cleanup: 종료된 잡 일괄 정리",
-            "stats: 집계 메트릭",
+            "list: show all jobs",
+            "output: show the log tail for one job",
+            "kill: terminate a job",
+            "attach: wait for a job to finish",
+            "search: regex-search all job output",
+            "cleanup: purge terminal jobs",
+            "stats: show aggregate metrics",
         ],
         parameters: Type.Object({
             action: StringEnum(
@@ -75,20 +67,20 @@ export function registerJobsTool(
                     "cleanup",
                     "stats",
                 ] as const,
-                { description: "수행할 액션" }
+                { description: "Action to perform" }
             ),
-            jobId: Type.Optional(Type.String({ description: "잡 ID" })),
+            jobId: Type.Optional(Type.String({ description: "Job ID" })),
             pattern: Type.Optional(
-                Type.String({ description: "search 정규식" })
+                Type.String({ description: "Regex pattern for search" })
             ),
             wait: Type.Optional(
                 Type.Boolean({
-                    description: "attach 시 완료 대기 여부 (기본 true)",
+                    description: "Whether attach should wait for completion (default: true)",
                 })
             ),
         }),
 
-        async execute(toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<undefined>> {
+        async execute(_toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<undefined>> {
             const p = params as {
                 action: "list" | "output" | "kill" | "attach" | "search" | "cleanup" | "stats";
                 jobId?: string;
@@ -169,11 +161,7 @@ async function killAction(
     if (job.status !== "running") {
         throw new Error(`Job is not running: ${job.id}`);
     }
-    terminateJob(job);
-    markKilledSilently(job);
-    if (reg.pendingDecisionJobId === job.id) {
-        reg.pendingDecisionJobId = undefined;
-    }
+    terminateJobSilently(reg, job);
     renderSidebar(reg, ctx);
     return {
         content: [
@@ -203,7 +191,7 @@ async function attachAction(
         reg.pendingDecisionJobId === job.id && job.status === "running";
 
     if (job.status === "running" && waitForCompletion && !skipWait) {
-        createCompletionPromise(job);
+        ensureCompletionPromise(job);
 
         // OS 프로세스가 이미 죽었는지 즉시 확인.
         if (!job.tmux && job.pid > 0 && !processExists(job.pid)) {
@@ -241,13 +229,7 @@ async function attachAction(
 
 // ─── search (v0.2 신규) ─────────────────────────────────────────────
 
-interface SearchHit {
-    jobId: string;
-    name?: string;
-    path: string;
-    line: number;
-    text: string;
-}
+const SEARCH_DISPLAY_LIMIT_PER_JOB = 20;
 
 async function searchAction(
     reg: BackgroundRegistry,
@@ -262,68 +244,39 @@ async function searchAction(
         throw new Error(`Invalid regex: ${(err as Error).message}`);
     }
 
-    const hits: SearchHit[] = [];
-    const all = [...Array.from(reg.jobs.values()), ...reg.recentTerminal];
-    for (const job of all) {
-        if (job.tmux) continue; // tmux 잡은 파일에 안 쓰여짐 — 스킵.
-        const content = readAll(job.logPath);
-        const lines = content.split("\n");
-        for (let i = 0; i < lines.length; i++) {
-            if (re.test(lines[i])) {
-                hits.push({
-                    jobId: job.id,
-                    name: job.name,
-                    path: job.logPath,
-                    line: i + 1,
-                    text: lines[i],
-                });
-            }
-        }
-    }
+    const result = await searchLogs({
+        jobs: [...Array.from(reg.jobs.values()), ...reg.recentTerminal],
+        pattern: re,
+        maxHitsPerJob: SEARCH_DISPLAY_LIMIT_PER_JOB,
+        maxLineChars: PREVIEW_CHARS.line,
+    });
 
-    if (hits.length === 0) {
+    if (result.totalHits === 0) {
         return {
             content: [textBlock(`No matches for /${pattern}/ in any job log.`)],
             details: undefined,
         };
     }
 
-    const grouped = groupHitsByJob(hits);
-    const blocks = Object.entries(grouped).map(([jobId, jobHits]) => {
-        const head = jobHits[0];
-        const headLabel = head?.name ? `${head.name} (${jobId})` : jobId;
-        const body = jobHits
-            .slice(0, 20)
+    const blocks = result.groups.map((group) => {
+        const headLabel = group.name ? `${group.name} (${group.jobId})` : group.jobId;
+        const body = group.hits
             .map((h) => `  ${h.path}:${h.line}: ${h.text}`)
             .join("\n");
-        const more = jobHits.length > 20 ? `\n  ... and ${jobHits.length - 20} more` : "";
-        return `${headLabel} (${jobHits.length} matches)\n${body}${more}`;
+        const more = group.count > group.hits.length
+            ? `\n  ... and ${group.count - group.hits.length} more`
+            : "";
+        return `${headLabel} (${group.count} matches)\n${body}${more}`;
     });
 
     return {
         content: [
             textBlock(
-                `Found ${hits.length} matches for /${pattern}/ across ${Object.keys(grouped).length} job(s):\n\n${blocks.join("\n\n")}`
+                `Found ${result.totalHits} matches for /${pattern}/ across ${result.groups.length} job(s):\n\n${blocks.join("\n\n")}`
             ),
         ],
         details: undefined,
     };
-}
-
-function readAll(path: string): string {
-    try {
-        return readFileSync(path, "utf-8");
-    } catch {
-        return "";
-    }
-}
-
-function groupHitsByJob(hits: SearchHit[]): Record<string, SearchHit[]> {
-    const out: Record<string, SearchHit[]> = {};
-    for (const h of hits) {
-        (out[h.jobId] ??= []).push(h);
-    }
-    return out;
 }
 
 // ─── cleanup (v0.2 신규) ────────────────────────────────────────────
@@ -364,15 +317,3 @@ function statsAction(reg: BackgroundRegistry): AgentToolResult<undefined> {
         details: undefined,
     };
 }
-
-void openSync;
-void readSync;
-void closeSync;
-void unlinkSync;
-void PREVIEW_CHARS;
-void isSignalExit;
-void _kp;
-void killTmuxWindow;
-void truncateTail;
-void formatDuration;
-void forget;

@@ -15,7 +15,6 @@ import {
     mkdirSync,
     openSync,
     readFileSync,
-    unlinkSync,
     writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -311,23 +310,39 @@ export function pollExitSentinel(args: {
     file: string;
     intervalMs?: number;
     maxPolls?: number;
+    maxDurationMs?: number;
+    signal?: AbortSignal;
 }): Promise<number | null> {
     const intervalMs = args.intervalMs ?? 500;
-    const maxPolls = args.maxPolls ?? 43_200; // 6h ÷ 500ms
+    const maxDurationMs = args.maxDurationMs ?? 6 * 60 * 60 * 1000;
+    const deadline = Date.now() + maxDurationMs;
     return new Promise((resolve) => {
         let count = 0;
+        let settled = false;
+        const finish = (code: number | null) => {
+            if (settled) return;
+            settled = true;
+            clearInterval(timer);
+            args.signal?.removeEventListener("abort", onAbort);
+            resolve(code);
+        };
+        const onAbort = () => finish(null);
         const timer = setInterval(() => {
-            if (++count > maxPolls) {
-                clearInterval(timer);
-                resolve(null);
+            if (args.signal?.aborted) {
+                finish(null);
+                return;
+            }
+            if (
+                (args.maxPolls !== undefined && ++count > args.maxPolls) ||
+                (args.maxPolls === undefined && Date.now() > deadline)
+            ) {
+                finish(null);
                 return;
             }
             const code = readExitSentinel(args.file);
-            if (code !== undefined) {
-                clearInterval(timer);
-                resolve(code);
-            }
+            if (code !== undefined) finish(code);
         }, intervalMs);
+        args.signal?.addEventListener("abort", onAbort, { once: true });
         timer.unref();
     });
 }
@@ -338,11 +353,6 @@ export function readExitSentinel(file: string): number | undefined {
     const content = readFileSync(file, "utf-8").trim();
     const code = parseInt(content);
     if (!Number.isFinite(code)) return undefined;
-    try {
-        unlinkSync(file);
-    } catch {
-        /* already gone */
-    }
     return code;
 }
 

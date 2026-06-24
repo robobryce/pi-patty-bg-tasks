@@ -118,6 +118,7 @@ Spawn a detached `pi -p` process with a continuity prompt derived from the curre
 |---------|-------------|
 | `/bg` | Background the current process (same as Ctrl+Shift+B) |
 | `/bg-list` | Open the interactive background task manager |
+| `/bg-version` | Show the loaded extension version/path for reload diagnostics |
 
 ## How It Works
 
@@ -137,6 +138,18 @@ tmux available?
   → Yes: command runs in tmux window with sentinel-file completion detection
   → No: command runs as detached child process with direct spawn
 ```
+
+## Cooperative Steering (Claude Code parity)
+
+When you type a message while a backgroundable foreground command is running, the extension intercepts it **before** Pi queues it as steering:
+
+1. The active foreground command is moved to background (output keeps capturing).
+2. The current agent turn is aborted.
+3. Your message is re-injected as a fresh user turn as soon as the agent is idle.
+
+This matches Claude Code's behavior where submitting input during an interruptible tool aborts the tool and starts a new turn, instead of queueing your message behind a long-running call.
+
+**Scope:** applies to the `bash` tool this extension owns. Long-running tools that are not wrapped by the extension fall back to Pi's native steering (queued, delivered at the next turn boundary).
 
 ## Status Bar
 

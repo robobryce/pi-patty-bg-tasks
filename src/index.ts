@@ -16,15 +16,11 @@ import { createBashTool } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
 import { isTmuxAvailable } from "./proc.ts";
 import {
-    cleanupStaleLogs,
-    cleanupStaleTmuxArtifacts,
+    cleanupStaleRuntimeArtifacts,
     detectNonInteractive,
     reviveAndValidate,
 } from "./lifecycle.ts";
-import {
-    forget as forgetJob,
-    renderSidebar,
-} from "./registry.ts";
+import { forget as forgetJob } from "./registry.ts";
 import {
     EVENT,
     PERSISTED_STATE_SCHEMA_VERSION,
@@ -37,6 +33,7 @@ import { registerJobDecideTool } from "./tools/job-decide.ts";
 import { registerAgentBgTool } from "./tools/agent-bg.ts";
 import { registerShortcuts } from "./shortcuts.ts";
 import { registerCommands } from "./commands.ts";
+import { registerInputHandlers } from "./input.ts";
 
 interface PersistedState {
     schemaVersion?: number;
@@ -59,6 +56,7 @@ export default function (pi: ExtensionAPI): void {
     // ── 단축키 / 커맨드 ───────────────────────────────────────────
     registerShortcuts(pi, reg);
     registerCommands(pi, reg);
+    registerInputHandlers(pi, reg);
 
 
     // ── 세션 시작 ─────────────────────────────────────────────────
@@ -76,10 +74,6 @@ export default function (pi: ExtensionAPI): void {
             process.argv,
             Boolean(process.stdin.isTTY)
         );
-
-        if (reg.tmuxAvailable) {
-            cleanupStaleTmuxArtifacts();
-        }
 
         // 직렬화된 백그라운드 잡 상태 복원 — 마지막 쓰기가 이김.
         const entries = ctx.sessionManager.getEntries();
@@ -107,7 +101,7 @@ export default function (pi: ExtensionAPI): void {
             }
         }
 
-        cleanupStaleLogs();
+        cleanupStaleRuntimeArtifacts({ tmuxAvailable: reg.tmuxAvailable });
     });
 
     // ── 세션 종료 ─────────────────────────────────────────────────

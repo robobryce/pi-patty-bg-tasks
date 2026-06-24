@@ -15,7 +15,6 @@ import {
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import type {
     ExtensionAPI,
     SessionEntry,
@@ -27,15 +26,17 @@ import {
     requireExistingCwd as requireExistingCwdHelper,
 } from "../lifecycle.ts";
 import {
-    killProcessTree,
-} from "../proc.ts";
-import {
     add,
     nextJobId,
     logPathFor,
     renderSidebar,
 } from "../registry.ts";
-import { completeJob, markKilledSilently, watchStalls } from "../lifecycle.ts";
+import {
+    completeJob,
+    registerJobCleanup,
+    terminateJobSilently,
+    watchStalls,
+} from "../lifecycle.ts";
 import type { Job } from "../types.ts";
 import { textBlock } from "../format.ts";
 
@@ -108,18 +109,18 @@ export function registerAgentBgTool(
         name: "agent_bg",
         label: "Background Agent",
         description:
-            "별도 pi -p 프로세스를 백그라운드에서 실행. 현재 세션의 " +
-            "user prompt + 마지막 assistant 메시지를 종합한 연속성 프롬프트 전달.",
-        promptSnippet: "백그라운드 pi -p 프로세스로 작업 위임",
+            "Run a separate pi -p process in the background. Builds a continuity prompt from " +
+            "the current session's user prompt and latest assistant message.",
+        promptSnippet: "Delegate work to a background pi -p process",
         promptGuidelines: [
-            "현재 세션과 독립적으로 실행 가능한 작업에 사용.",
-            "연속성 프롬프트에 원본 작업과 마지막 위치가 포함됨.",
-            "완료 시 notifyFinished로 통지.",
+            "Use this for work that can run independently from the current session.",
+            "The continuity prompt includes the original task and recent context.",
+            "Completion is reported with a background-job notification.",
         ],
         parameters: Type.Object({
-            prompt: Type.String({ description: "백그라운드 에이전트에 전달할 작업" }),
+            prompt: Type.String({ description: "Task to send to the background agent" }),
             cwd: Type.Optional(
-                Type.String({ description: "작업 디렉터리 (기본: 현재)" })
+                Type.String({ description: "Working directory (default: current)" })
             ),
         }),
 
@@ -203,11 +204,9 @@ export function registerAgentBgTool(
                 command: job.command,
                 logPath,
                 pi,
-                onOversize: () => {
-                    if (proc.pid) killProcessTree(proc.pid, "SIGTERM");
-                    markKilledSilently(job);
-                },
+                onOversize: () => terminateJobSilently(reg, job),
             });
+            registerJobCleanup(reg, id, cancelStall);
 
             const cleanupFiles = [promptFile];
             const finalize = (code: number | null) => {
@@ -240,5 +239,4 @@ export function registerAgentBgTool(
         },
     });
 }
-
 
