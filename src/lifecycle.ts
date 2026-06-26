@@ -282,7 +282,7 @@ export function notifyFinished(args: {
                 logPath: job.logPath,
             },
         },
-        { deliverAs: "followUp", triggerTurn: false }
+        { deliverAs: "nextTurn" }
     );
 }
 

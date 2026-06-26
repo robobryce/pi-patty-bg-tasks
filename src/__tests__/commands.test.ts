@@ -24,7 +24,7 @@ void describe("commands", () => {
         assert.ok(commands.has("bg"));
         assert.ok(commands.has("bg-list"));
         assert.ok(commands.has("bg-version"));
-        assert.match(notices[0], /^pi-patty-bg-tasks@0\.2\.2 loaded from /);
+        assert.match(notices[0], /^pi-patty-bg-tasks@\d+\.\d+\.\d+ loaded from /);
         assert.match(notices[0], /pi-patty-bg-tasks$/);
     });
 });

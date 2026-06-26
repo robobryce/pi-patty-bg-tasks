@@ -132,7 +132,7 @@ Background job running
   → Output captured to /tmp/pi-bg-<id>.log
   → Stall detection: if output looks like an interactive prompt, agent is warned
   → Oversize detection: if output exceeds limit, job is killed
-  → On completion: agent gets notification with status + output path
+  → On completion: toast fires; status + output path queued for your next prompt (agent not woken on its own)
 
 tmux available?
   → Yes: command runs in tmux window with sentinel-file completion detection
