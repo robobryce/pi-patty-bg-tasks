@@ -224,7 +224,7 @@ async function runDirect(
                 signal: isSignalExit(c),
             })),
             new Promise<null>((resolve) => {
-                const t = nodeSetTimeout(resolve, QUICK_COMPLETION_MS) as unknown as NodeJS.Timeout;
+                const t = nodeSetTimeout(() => resolve(null), QUICK_COMPLETION_MS) as unknown as NodeJS.Timeout;
                 t.unref();
             }),
         ]);
@@ -417,7 +417,7 @@ async function runViaTmux(
         const quickResult = await Promise.race<number | null>([
             completionPromise,
             new Promise<null>((resolve) => {
-                const t = nodeSetTimeout(resolve, QUICK_COMPLETION_MS) as unknown as NodeJS.Timeout;
+                const t = nodeSetTimeout(() => resolve(null), QUICK_COMPLETION_MS) as unknown as NodeJS.Timeout;
                 t.unref();
             }),
         ]);

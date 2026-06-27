@@ -11,6 +11,7 @@ import {
     isSignalExit,
     markKilledSilently,
     markTerminal,
+    notifyFinished,
     requestJobDecision,
     statusFromExit,
 } from "../lifecycle.ts";
@@ -188,6 +189,37 @@ void describe("requestJobDecision", () => {
         assert.equal(reg.pendingDecisionJobId, "job-timeout");
         assert.equal(sent[0]?.customType, EVENT.timeout);
         assert.equal(sent[0]?.details?.jobId, "job-timeout");
+    });
+});
+
+void describe("notifyFinished", () => {
+    void it("delivers job-finished as steer instead of deferring to next user turn", () => {
+        const reg = new BackgroundRegistry();
+        const sent: Array<{
+            msg: { customType?: string; content?: string };
+            options?: { deliverAs?: string };
+        }> = [];
+        const job = makeJob({
+            id: "job-done",
+            command: "pnpm test",
+            status: "completed",
+            exitCode: 0,
+        });
+
+        notifyFinished({
+            job,
+            reg,
+            pi: {
+                sendMessage: (
+                    msg: { customType?: string; content?: string },
+                    options?: { deliverAs?: string }
+                ) => sent.push({ msg, options }),
+            } as never,
+            ctx: makeCtx(),
+        });
+
+        assert.equal(sent[0]?.msg.customType, EVENT.jobFinished);
+        assert.equal(sent[0]?.options?.deliverAs, "steer");
     });
 });
 
