@@ -482,10 +482,9 @@ async function runViaTmux(
             if (race.reason === "timeout") {
                 requestJobDecision({
                     reg,
-                    pi,
+                    ctx,
                     job,
                     timeoutMs,
-                    location: { kind: "tmux", windowId: tmuxCtx.windowId },
                 });
             }
 
@@ -557,10 +556,9 @@ function promoteToBackground(args: {
     if (args.requestDecision) {
         requestJobDecision({
             reg: args.reg,
-            pi: args.pi,
+            ctx: args.ctx,
             job: args.placeholder,
             timeoutMs: args.timeoutMs,
-            location: { kind: "pid", pid: args.placeholder.pid },
         });
     }
 }

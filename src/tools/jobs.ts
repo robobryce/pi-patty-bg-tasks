@@ -51,7 +51,7 @@ export function registerJobsTool(
             "list: show all jobs",
             "output: show the log tail for one job",
             "kill: terminate a job",
-            "attach: wait for a job to finish",
+            "attach: wait for a job to finish and report status; use output for logs",
             "search: regex-search all job output",
             "cleanup: purge terminal jobs",
             "stats: show aggregate metrics",
@@ -95,7 +95,7 @@ export function registerJobsTool(
                 case "kill":
                     return await killAction(reg, p.jobId!, ctx);
                 case "attach":
-                    return await attachAction(reg, p.jobId!, p.wait ?? true, signal, onUpdate);
+                    return await attachAction(reg, p.jobId!, p.wait ?? true, signal, onUpdate, ctx);
                 case "search":
                     return await searchAction(reg, p.pattern ?? "");
                 case "cleanup":
@@ -138,11 +138,14 @@ async function outputAction(
 ): Promise<AgentToolResult<undefined>> {
     const job = findJob(reg, jobId);
     if (!job) throw new Error(`Job not found: ${jobId}`);
-    const out = readLogTail(job, OUTPUT_PREVIEW_CHARS);
+    const out = readLogTail(job, OUTPUT_PREVIEW_CHARS).trimEnd();
+    const label = job.name ?? job.id;
     return {
         content: [
             textBlock(
-                `Output for ${job.name ?? job.id} (${job.status})\nLog: ${job.logPath}\n\n${out}`
+                out
+                    ? `Output for ${label} (${job.status})\n${out}`
+                    : `No output yet for ${label} (${job.status}). Log: ${job.logPath}`
             ),
         ],
         details: undefined,
@@ -182,7 +185,8 @@ async function attachAction(
     jobId: string,
     waitForCompletion: boolean,
     signal: AbortSignal | undefined,
-    onUpdate: ((u: { content: Array<{ type: "text"; text: string }>; details: undefined }) => void) | undefined
+    onUpdate: ((u: { content: Array<{ type: "text"; text: string }>; details: undefined }) => void) | undefined,
+    ctx: UiContext
 ): Promise<AgentToolResult<undefined>> {
     const job = findJob(reg, jobId);
     if (!job) throw new Error(`Job not found: ${jobId}`);
@@ -215,14 +219,11 @@ async function attachAction(
         }
     }
 
-    const out = readLogTail(job, OUTPUT_PREVIEW_CHARS);
-    job.outputConsumed = true;
+    const label = job.name ?? job.id;
+    const message = `Attach finished for ${label}. Status: ${job.status}`;
+    ctx.ui.notify(message, job.status === "failed" ? "error" : "info");
     return {
-        content: [
-            textBlock(
-                `Attach finished for ${job.name ?? job.id}. Status: ${job.status}\nLog: ${job.logPath}\n\n${out}`
-            ),
-        ],
+        content: [textBlock(`${message}. Use jobs output for logs.`)],
         details: undefined,
     };
 }

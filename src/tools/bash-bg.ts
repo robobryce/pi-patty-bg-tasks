@@ -279,17 +279,11 @@ function armTimeoutForSpawnedJob(args: {
             renderSidebar(args.reg, args.ctx);
             return;
         }
-        // bg-timeout 흐름: 에이전트에게 결정 요청.
-        const location =
-            args.job.tmux
-                ? ({ kind: "tmux", windowId: args.job.tmux.windowId } as const)
-                : ({ kind: "pid", pid: args.job.pid } as const);
         requestJobDecision({
             reg: args.reg,
-            pi: args.pi,
+            ctx: args.ctx,
             job: args.job,
             timeoutMs: args.timeoutMs,
-            location,
         });
     }, args.timeoutMs);
     timer.unref();

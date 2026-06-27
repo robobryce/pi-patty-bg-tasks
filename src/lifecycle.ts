@@ -266,68 +266,18 @@ export function notifyFinished(args: {
     );
 }
 
-/**
- * 타임아웃 후 백그라운딩되었음을 에이전트에게 알리는 follow-up 메시지를
- * 만든다. 직접 spawn / tmux 백엔드 양쪽에서 동일한 메시지 형태를 보장한다.
- */
-export function buildTimeoutNotice(args: {
-    jobId: string;
-    command: string;
-    logPath: string;
-    timeoutMs: number;
-    location: { kind: "pid"; pid: number } | { kind: "tmux"; windowId: string };
-}): { content: string; details: Record<string, unknown> } {
-    const where =
-        args.location.kind === "pid"
-            ? `PID: ${args.location.pid}`
-            : `Tmux window: ${args.location.windowId}`;
-    const attachHint =
-        args.location.kind === "tmux"
-            ? `You can attach to the tmux window with: tmux attach -t ${args.location.windowId}`
-            : `Do NOT use jobs action "attach" on this job — it will block indefinitely.`;
-    return {
-        content:
-            `Command running in background with ID: ${args.jobId}. Output is being written to: ${args.logPath}\n\n` +
-            `Command: ${args.command}\n` +
-            `${where}\n` +
-            `Timed out after: ${formatDuration(args.timeoutMs)}\n\n` +
-            `Use the job_decide tool with jobId "${args.jobId}" to decide:\n` +
-            `- decision "check": inspect the output first\n` +
-            `- decision "keep": let it continue running\n` +
-            `- decision "kill": terminate it\n\n` +
-            attachHint,
-        details: {
-            jobId: args.jobId,
-            logPath: args.logPath,
-            command: args.command,
-        },
-    };
-}
-
-/** 타임아웃 의사결정 요청을 기록하고 에이전트 follow-up으로 전달한다. */
+/** 타임아웃 의사결정 요청을 기록하고 UI에 가볍게 알린다. */
 export function requestJobDecision(args: {
     reg: BackgroundRegistry;
-    pi: ExtensionAPI;
+    ctx: UiContext;
     job: Job;
     timeoutMs: number;
-    location: { kind: "pid"; pid: number } | { kind: "tmux"; windowId: string };
 }): void {
     args.reg.pendingDecisionJobId = args.job.id;
-    const notice = buildTimeoutNotice({
-        jobId: args.job.id,
-        command: args.job.command,
-        logPath: args.job.logPath,
-        timeoutMs: args.timeoutMs,
-        location: args.location,
-    });
-    args.pi.sendMessage(
-        {
-            customType: EVENT.timeout,
-            content: notice.content,
-            display: true,
-            details: notice.details,
-        },
-        { deliverAs: "followUp", triggerTurn: true }
+    const label = args.job.name ? `"${args.job.name}"` : args.job.id;
+    args.ctx.ui.notify(
+        `Backgrounded ${label} after ${formatDuration(args.timeoutMs)}; still running.`,
+        "info"
     );
 }
 

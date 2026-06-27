@@ -173,22 +173,20 @@ void describe("backgroundActiveForeground", () => {
 });
 
 void describe("requestJobDecision", () => {
-    void it("timeout background records pending decision and sends bg-timeout", () => {
+    void it("timeout background records pending decision and uses lightweight notification", () => {
         const reg = new BackgroundRegistry();
-        const sent: { customType?: string; details?: { jobId?: string } }[] = [];
+        const notifications: string[] = [];
         const job = makeJob({ id: "job-timeout", command: "pnpm test" });
 
         requestJobDecision({
             reg,
-            pi: { sendMessage: (msg: { customType?: string; details?: { jobId?: string } }) => sent.push(msg) } as never,
+            ctx: makeCtx(notifications),
             job,
             timeoutMs: 15_000,
-            location: { kind: "pid", pid: 123 },
         });
 
         assert.equal(reg.pendingDecisionJobId, "job-timeout");
-        assert.equal(sent[0]?.customType, EVENT.timeout);
-        assert.equal(sent[0]?.details?.jobId, "job-timeout");
+        assert.equal(notifications[0], "Backgrounded job-timeout after 15s; still running.");
     });
 });
 

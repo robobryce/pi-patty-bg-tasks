@@ -23,6 +23,7 @@ import {
     nextJobId,
 } from "../registry.ts";
 import { formatJobLine } from "../format.ts";
+import { registerJobsTool } from "../tools/jobs.ts";
 import type { Job } from "../types.ts";
 
 const TMP = "/tmp/pi-patty-features-test";
@@ -107,6 +108,33 @@ void describe("jobs.search 정규식 검색", () => {
         assert.equal(hitsB, 1);
 
         rmSync(TMP, { recursive: true, force: true });
+    });
+});
+
+void describe("jobs.attach", () => {
+    void it("returns compact status instead of a blank log block", async () => {
+        const reg = new BackgroundRegistry();
+        const tools = new Map<string, { execute: (...args: unknown[]) => Promise<{ content: Array<{ type: string; text: string }> }> }>();
+        const notifications: string[] = [];
+        const job = makeJob({ id: "job-done", name: "build", status: "completed" });
+        reg.recentTerminal.push(job);
+
+        registerJobsTool({
+            registerTool(tool: { name: string; execute: (...args: unknown[]) => Promise<{ content: Array<{ type: string; text: string }> }> }) {
+                tools.set(tool.name, tool);
+            },
+        } as never, reg);
+
+        const result = await tools.get("jobs")!.execute(
+            "tool-call",
+            { action: "attach", jobId: "job-done", wait: false },
+            undefined,
+            undefined,
+            { ui: { notify: (message: string) => notifications.push(message) } }
+        );
+
+        assert.equal(notifications[0], "Attach finished for build. Status: completed");
+        assert.equal(result.content[0]?.text, "Attach finished for build. Status: completed. Use jobs output for logs.");
     });
 });
 
