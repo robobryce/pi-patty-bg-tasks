@@ -4,7 +4,19 @@
   <strong>English</strong> · <a href="README.ko.md">한국어</a> · <a href="README.zh.md">中文</a>
 </p>
 
-**Claude Code's background task experience, brought to Pi.** Run long commands without blocking the agent — auto-background after 120 seconds, manual background with Ctrl+Shift+B, output capture, stall detection, and a full job manager.
+<p align="center">
+  <strong>Long commands shouldn't freeze your agent. Background them automatically — and keep shipping.</strong>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/pi-patty-bg-tasks"><img alt="npm" src="https://img.shields.io/npm/v/pi-patty-bg-tasks?color=cb3837&label=npm&logo=npm"></a>&nbsp;
+  <img alt="Pi v0.37+" src="https://img.shields.io/badge/Pi-v0.37%2B-5b50f0">&nbsp;
+  <img alt="dependencies: zero" src="https://img.shields.io/badge/dependencies-zero-3fb950">&nbsp;
+  <img alt="tmux: not required" src="https://img.shields.io/badge/tmux-not_required-3fb950">&nbsp;
+  <img alt="license: MIT" src="https://img.shields.io/badge/license-MIT-blue">
+</p>
+
+**Your agent shouldn't twiddle its thumbs while the build runs.** This is Claude Code's background-task experience, brought to Pi: kick off a long command, and instead of blocking the whole session, it slips into the background while the agent keeps working. Auto-background after 120 seconds, instant background with Ctrl+Shift+B, output capture, stall detection, and a full job manager — all in one extension.
 
 ## Install
 
@@ -12,26 +24,21 @@
 pi install npm:pi-patty-bg-tasks
 ```
 
-Or from GitHub:
+Or straight from GitHub:
 
 ```
 pi install git:github.com/patty-io/pi-patty-bg-tasks
 ```
 
-Requires Pi v0.37+. No external dependencies — background jobs run as direct Node.js child processes with file-descriptor output capture.
+Needs Pi v0.37+. That's the only requirement — there are **no external dependencies** and **no tmux**. Background jobs run as plain Node.js child processes with their output piped straight to a file descriptor. Nothing to install, nothing to babysit.
 
-## v1.0 Breaking Changes
+## Why You'll Want This
 
-- **tmux dependency removed.** Background jobs now run as direct Node.js `child_process.spawn` processes with file-descriptor output capture (Claude Code parity). tmux is no longer used or required — nothing to install.
-- **Default auto-background timeout is now 120s** (was 15s), matching Claude Code. Pass an explicit `timeout` to override.
+**Blocked sessions are over.** Dev servers, test suites, builds — anything still chugging after 120 seconds gets quietly moved to the background. The agent gets a heads-up and carries on with the next thing instead of staring at a spinner. Want it gone sooner? Background any command by hand, any time.
 
-## Why pi-patty-bg-tasks
+**It feels like Claude Code, because it's modeled on Claude Code.** The whole background/foreground dance — Ctrl+B to background, output capture, completion pings, stall detection — is built directly on Claude Code's implementation. Same message format, same terminal-native icons, same "agent never stops moving" flow. If you've got the muscle memory, it's already here.
 
-**No more blocked sessions.** Dev servers, test suites, builds — anything that runs longer than 120 seconds is automatically backgrounded. The agent gets notified and keeps working. You can also background any command manually at any time.
-
-**Claude Code behavior, on Pi.** The background/foreground UX — Ctrl+B to background, output capture, completion notifications, stall detection — is modeled directly on Claude Code's implementation. Same message format, same terminal-native icons, same "agent keeps working" flow.
-
-**Job manager built in.** `/bg-list` gives you an interactive task manager. List, inspect output, kill, or attach to any background job.
+**A real job manager, not an afterthought.** `/bg-list` opens an interactive task manager where you can list jobs, peek at their output, kill the runaways, or attach and wait for a result.
 
 ## Quick Start
 
@@ -39,64 +46,64 @@ Requires Pi v0.37+. No external dependencies — background jobs run as direct N
 # Agent runs a long command — auto-backgrounds after 120s
 bash({ command: "npm run build" })
 
-# Start a command in the background up front with run_in_background
+# Skip the wait — start it in the background up front
 bash({ command: "npm run dev", run_in_background: true })
 
-# Start something in the background immediately
+# Or fire-and-forget straight to the background
 bash_bg({ command: "npm run dev", name: "devserver" })
 
-# Check on background jobs
+# Check on what's running
 jobs({ action: "list" })
 
-# Search across all job output
+# Grep across every job's output at once
 jobs({ action: "search", pattern: "error|warning" })
 
-# Spawn a background agent
+# Hand off a whole task to a background agent
 agent_bg({ prompt: "Refactor the auth module" })
 ```
 
-Press **Ctrl+Shift+B** at any time to background a running command. The agent is notified and continues working immediately.
+Hit **Ctrl+Shift+B** whenever a command is running to background it on the spot. The agent gets notified and is back to work before you've let go of the keys.
 
 ## Tools
 
 ### bash (override)
 
-Extends the built-in bash tool. Commands run normally, but if a command exceeds 120 seconds, it is automatically backgrounded and the agent is prompted to decide (keep, kill, or check output) via `job_decide`.
+The built-in bash tool, with a survival instinct. Commands run normally — but if one blows past 120 seconds, it's automatically backgrounded and the agent is asked what to do next (keep it, kill it, or check the output) via `job_decide`.
 
 | Parameter | Description |
 |-----------|-------------|
 | `command` | Shell command to run |
 | `timeout` | Custom timeout in seconds (default: 120) |
-| `run_in_background` | Start the command in the background immediately, skipping the foreground run and auto-background timer |
+| `run_in_background` | Start the command in the background immediately, skipping the foreground run and the auto-background timer |
 
 ### bash_bg
 
-Start a command in the background immediately — no foreground race or timeout.
+When you already know it's a long one. Starts a command in the background immediately — no foreground race, no timeout to wait out.
 
 | Parameter | Description |
 |-----------|-------------|
 | `command` | Shell command to run |
 | `name` | Optional human-readable label for the job |
 | `timeout` | Optional timeout in seconds; triggers the same auto-background decision flow |
-| `notify` | Send completion notification (default: true) |
+| `notify` | Send a completion notification (default: true) |
 
 ### jobs
 
-Manage background jobs: list, read output, kill, attach, search, cleanup, or get stats.
+Mission control for everything running in the background: list, read output, kill, attach, search, cleanup, or pull stats.
 
 | Action | Description |
 |--------|-------------|
 | `list` | Show all running and recently completed jobs |
 | `output` | Read the log tail of a specific job |
 | `kill` | Terminate a running job |
-| `attach` | Wait for a job to complete, then return its output |
+| `attach` | Wait for a job to finish, then return its output |
 | `search` | Regex search across all job logs |
 | `cleanup` | Purge completed/failed jobs and reclaim disk |
 | `stats` | Aggregate metrics: total started, running, completed, failed, average duration |
 
 ### job_decide
 
-Respond to an auto-backgrounded command. The agent receives this prompt when the 120-second timer fires.
+The agent's answer to an auto-backgrounded command. This prompt lands the moment the 120-second timer fires.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -105,7 +112,7 @@ Respond to an auto-backgrounded command. The agent receives this prompt when the
 
 ### agent_bg
 
-Spawn a detached `pi -p` process with a continuity prompt derived from the current session.
+Clone yourself a coworker. Spawns a detached `pi -p` process with a continuity prompt derived from the current session, then streams its progress back to you live.
 
 | Parameter | Description |
 |-----------|-------------|
@@ -114,14 +121,18 @@ Spawn a detached `pi -p` process with a continuity prompt derived from the curre
 
 ## Keyboard Shortcuts
 
+Keep your hands on the keyboard.
+
 | Shortcut | Action |
 |----------|--------|
-| **Ctrl+Shift+B** | Background the current process — agent keeps working (matches Claude Code Ctrl+B) |
-| **Ctrl+Shift+J** | Open background task manager |
-| **Shift+Down** | Open background task manager |
+| **Ctrl+Shift+B** | Background the current process — agent keeps working (matches Claude Code's Ctrl+B) |
+| **Ctrl+Shift+J** | Open the background task manager |
+| **Shift+Down** | Open the background task manager |
 | **Ctrl+Shift+X** | Kill the most recent running job |
 
 ## Commands
+
+Prefer slashes? Same powers, different door.
 
 | Command | Description |
 |---------|-------------|
@@ -131,38 +142,72 @@ Spawn a detached `pi -p` process with a continuity prompt derived from the curre
 
 ## How It Works
 
+No magic, just a tidy state machine:
+
 ```
 Command starts (direct Node.js child_process.spawn)
-  → Completes in <2s?      Return result immediately
-  → Still running at 120s? Auto-background → agent gets job_decide prompt
-  → User presses Ctrl+Shift+B? Background immediately → agent continues
+  → Done in <2s?           Return the result immediately
+  → Still running at 120s? Auto-background → agent gets a job_decide prompt
+  → You press Ctrl+Shift+B? Background immediately → agent continues
 
 Background job running
-  → Output captured to /tmp/pi-bg-<id>.log via file descriptor
-  → Stall detection: if output looks like an interactive prompt, agent is warned
-  → Oversize detection: if output exceeds limit, job is killed
-  → On completion: agent gets notification with status + output path
+  → Output captured to /tmp/pi-bg/<id>.log via file descriptor
+  → Stall detection: if the output looks like an interactive prompt, the agent is warned
+  → Oversize detection: if the output blows past the limit, the job is killed
+  → On completion: agent gets a notification with status + output path
 ```
 
 Background jobs run as detached Node.js child processes with their stdout/stderr wired
-straight to a log file descriptor — the same pattern Claude Code uses. There is no tmux
-or external process manager in the loop.
+straight to a log file descriptor — the exact pattern Claude Code uses. No tmux, no
+external process manager, nothing standing between your command and its log. Up to
+**16 background jobs** run at once; ask for a 17th and it's politely rejected until a
+slot frees up. Stale logs older than 24h get swept on session start, so `/tmp` never
+turns into a junk drawer.
 
 ## Cooperative Steering (Claude Code parity)
 
-When you type a message while a backgroundable foreground command is running, the extension intercepts it **before** Pi queues it as steering:
+Type a message while a backgroundable foreground command is running, and the extension steps in **before** Pi queues your text as steering:
 
-1. The active foreground command is moved to background (output keeps capturing).
+1. The active foreground command slides into the background (output keeps capturing — nothing is lost).
 2. The current agent turn is aborted.
-3. Your message is re-injected as a fresh user turn as soon as the agent is idle.
+3. Your message is re-injected as a fresh user turn the instant the agent is idle.
 
-This matches Claude Code's behavior where submitting input during an interruptible tool aborts the tool and starts a new turn, instead of queueing your message behind a long-running call.
+That's exactly how Claude Code behaves: submitting input during an interruptible tool aborts the tool and starts a new turn, instead of leaving your message stuck in line behind a long-running call. No polling, no waiting your turn.
 
-**Scope:** applies to the `bash` tool this extension owns. Long-running tools that are not wrapped by the extension fall back to Pi's native steering (queued, delivered at the next turn boundary).
+**Scope:** this applies to the `bash` tool this extension owns. Long-running tools the extension doesn't wrap fall back to Pi's native steering (queued, delivered at the next turn boundary).
 
 ## Status Bar
 
-A live pill widget shows running jobs with duration and command preview. Completed and failed counts appear in the status line. Use Shift+Down or `/bg-list` to open the full task manager.
+A live pill widget keeps your running jobs in view — each with its duration and a preview of the command. Completed and failed counts ride along in the status line. When you want the full picture, Shift+Down or `/bg-list` opens the task manager.
+
+## Releases
+
+### 1.0.1 — Claude Code parity (first published 1.x)
+
+The big one. The background engine was rewritten from the ground up to match Claude Code's architecture, with zero external dependencies. This is the first 1.x on npm, and it ships the parity rewrite alongside a solid round of correctness and performance hardening.
+
+**Breaking changes**
+- **tmux is gone.** Background jobs now run as direct Node.js `child_process.spawn` processes with file-descriptor output capture. tmux is no longer used or required — nothing left to install.
+- **Default auto-background timeout is now 120s** (was 15s), matching Claude Code. Pass an explicit `timeout` to override.
+- Background logs moved from `/tmp/pi-bg-<id>.log` to a dedicated `/tmp/pi-bg/<id>.log` directory.
+
+**Highlights**
+- New `run_in_background: true` parameter on the `bash` tool.
+- `agent_bg` now streams progress live and resolves the `pi` binary path (so it works even outside standard `$PATH` installs).
+- Cooperative steering delivers your message as a follow-up turn — no polling loop.
+- Concurrency cap of 16 simultaneous background jobs.
+- Code and UI are English-only.
+
+**Fixes & internals (post-rewrite hardening)**
+- Cooperative steering no longer kills the very command it just backgrounded.
+- Spawn failures (`ENOENT`/`EMFILE`/`EAGAIN`) are handled gracefully instead of crashing the agent.
+- Session restore only revives jobs from the current process — it never signals a possibly-recycled PID.
+- The four spawn paths were consolidated onto a single `startBackgroundJob` service function; foreground teardown moved into `finally` so no exit path can strand a job.
+- Log search runs concurrently across jobs, and the stale-log sweep is bounded and async.
+
+### 0.3.1 and earlier
+
+tmux-backed background jobs, 15s auto-background, cooperative steering, and the interactive job manager.
 
 ## Development
 
@@ -174,13 +219,15 @@ pnpm check    # type-check
 pnpm test     # run tests
 ```
 
-Requires Node.js ≥ 22, pnpm ≥ 10. No tmux or other external dependencies.
+Requires Node.js ≥ 22, pnpm ≥ 10. No tmux or other external dependencies — what you clone is what you run.
 
 ## Contributing
 
+PRs welcome. The drill:
+
 1. Fork the repo
 2. Create a feature branch (`git checkout -b feat/my-feature`)
-3. Ensure `pnpm check` and `pnpm test` pass
+3. Make sure `pnpm check` and `pnpm test` pass
 4. Commit with [conventional commits](https://www.conventionalcommits.org/)
 5. Open a PR against `main`
 

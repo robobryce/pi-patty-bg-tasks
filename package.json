@@ -1,6 +1,6 @@
 {
     "name": "pi-patty-bg-tasks",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Background tasks extension for pi. Claude Code parity — auto-background after 120s, run_in_background flag, Ctrl+Shift+B manual background, file-fd output capture, cooperative steering, agent_bg with progress streaming.",
     "type": "module",
     "keywords": [
