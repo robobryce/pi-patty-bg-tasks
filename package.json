@@ -20,7 +20,9 @@
         "src/",
         "!src/__tests__/**",
         "index.ts",
-        "README.md"
+        "README.md",
+        "README.ko.md",
+        "README.zh.md"
     ],
     "pi": {
         "extensions": [
