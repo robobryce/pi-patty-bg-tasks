@@ -1,7 +1,7 @@
 {
     "name": "pi-patty-bg-tasks",
-    "version": "0.3.1",
-    "description": "Background tasks extension for pi. Cooperative steering (Claude Code parity), backgrounded bash with 15s auto-background timeout, agent_bg for detached pi -p, streaming log search, plus search/cleanup/stats on the jobs tool.",
+    "version": "1.0.0",
+    "description": "Background tasks extension for pi. Claude Code parity — auto-background after 120s, run_in_background flag, Ctrl+Shift+B manual background, file-fd output capture, cooperative steering, agent_bg with progress streaming.",
     "type": "module",
     "keywords": [
         "pi-package",
