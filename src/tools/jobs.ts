@@ -20,7 +20,7 @@ import {
     PREVIEW_CHARS,
     type UiContext,
 } from "../types.ts";
-import { processExists } from "../proc.ts";
+import { processExists } from "../spawn.ts";
 import {
     cleanupTerminal,
     findJob,

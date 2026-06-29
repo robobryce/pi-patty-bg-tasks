@@ -10,15 +10,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { BackgroundRegistry } from "../state.ts";
-import { MAX_CONCURRENT_JOBS, type Job, type UiContext } from "../types.ts";
+import { type Job, type UiContext } from "../types.ts";
 import { spawnWithFileOutput } from "../spawn.ts";
 import { add, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
 import {
-    completeJob, createJobAbort, ensureCompletionPromise,
-    isAutoBackgroundAllowed, isBlankCommand, requestJobDecision,
-    requireExistingCwd, terminateJobSilently,
+    assertJobSlot, isAutoBackgroundAllowed, isBlankCommand,
+    requestJobDecision, requireExistingCwd, startBackgroundJob,
+    terminateJobSilently,
 } from "../lifecycle.ts";
-import { watchStalls } from "../monitoring.ts";
 import { textBlock } from "../format.ts";
 
 type BashBgCtx = UiContext & { cwd: string };
@@ -47,16 +46,10 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
             const ctx2 = ctx as BashBgCtx;
             if (isBlankCommand(p.command)) throw new Error("Command is empty.");
             requireExistingCwd(ctx2.cwd);
+            assertJobSlot(reg);
 
-            const running = Array.from(reg.jobs.values()).filter((j) => j.status === "running");
-            if (running.length >= MAX_CONCURRENT_JOBS) {
-                throw new Error(`Max concurrent jobs (${MAX_CONCURRENT_JOBS}) reached.`);
-            }
-
-            const shouldNotify = p.notify !== false;
             const id = nextJobId(reg);
             const logPath = logPathFor(id);
-
             const spawned = spawnWithFileOutput({
                 command: p.command, cwd: ctx2.cwd, logPath,
             });
@@ -66,17 +59,13 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
                 startTime: Date.now(), status: "running", logPath,
                 toolCallId, isBackgrounded: true,
             };
-            ensureCompletionPromise(job);
             add(reg, job);
-
-            const jobAc = createJobAbort(reg, id);
-            const cancelStall = watchStalls({
-                jobId: id, command: p.command, logPath, pi,
-                onOversize: () => terminateJobSilently(reg, job),
+            const jobAc = startBackgroundJob({
+                reg, pi, ctx: ctx2, job, exit: spawned.exit,
+                shouldNotify: p.notify !== false,
             });
-            jobAc.signal.addEventListener("abort", cancelStall, { once: true });
 
-            // Optional timeout.
+            // Optional timeout — route an overrun into the decision flow.
             if (p.timeout) {
                 const timer = setTimeout(() => {
                     if (job.status !== "running" || reg.nonInteractive) return;
@@ -94,11 +83,6 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
                 jobAc.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
             }
 
-            spawned.exit.then((code) => {
-                completeJob({ job, code, reg, pi, ctx: ctx2, shouldNotify });
-            });
-
-            renderSidebar(reg, ctx2);
             return {
                 content: [textBlock(
                     `Command running in background with ID: ${id}.` +

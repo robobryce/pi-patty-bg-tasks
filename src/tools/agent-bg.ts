@@ -13,16 +13,14 @@ import { tmpdir } from "node:os";
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { BackgroundRegistry } from "../state.ts";
-import { MAX_CONCURRENT_JOBS, type Job } from "../types.ts";
-import { isBlankCommand, requireExistingCwd as requireCwd } from "../lifecycle.ts";
-import { add, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
+import { type Job } from "../types.ts";
 import {
-    completeJob,
-    createJobAbort,
-    ensureCompletionPromise,
-    terminateJobSilently,
+    assertJobSlot,
+    isBlankCommand,
+    requireExistingCwd as requireCwd,
+    startBackgroundJob,
 } from "../lifecycle.ts";
-import { watchStalls } from "../monitoring.ts";
+import { add, nextJobId, logPathFor } from "../registry.ts";
 import { spawnWithFileOutput, type SpawnResult } from "../spawn.ts";
 import { pollFileTail } from "../output.ts";
 import { textBlock } from "../format.ts";
@@ -103,10 +101,7 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
             const cwd = p.cwd ?? ctx.cwd;
             requireCwd(cwd);
 
-            const running = Array.from(reg.jobs.values()).filter((j) => j.status === "running");
-            if (running.length >= MAX_CONCURRENT_JOBS) {
-                throw new Error(`Max concurrent jobs (${MAX_CONCURRENT_JOBS}) reached.`);
-            }
+            assertJobSlot(reg);
 
             const id = nextJobId(reg);
             const logPath = logPathFor(id);
@@ -153,29 +148,18 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
                 startTime: Date.now(), status: "running", logPath,
                 toolCallId, isBackgrounded: true,
             };
-            ensureCompletionPromise(job);
             add(reg, job);
-
-            const jobAc = createJobAbort(reg, id);
 
             // Progress streaming — surface agent output via onUpdate.
             const progressPoller = pollFileTail(logPath, (text) => {
                 onUpdate?.({ content: [{ type: "text", text }], details: undefined });
             });
+            const jobAc = startBackgroundJob({
+                reg, pi, ctx, job, exit: spawned.exit,
+                onExit: () => { try { unlinkSync(promptFile); } catch { /* already gone */ } },
+            });
             jobAc.signal.addEventListener("abort", () => progressPoller.stop(), { once: true });
 
-            const cancelStall = watchStalls({
-                jobId: id, command: job.command, logPath, pi,
-                onOversize: () => terminateJobSilently(reg, job),
-            });
-            jobAc.signal.addEventListener("abort", cancelStall, { once: true });
-
-            void spawned.exit.then((code) => {
-                try { unlinkSync(promptFile); } catch { /* already gone */ }
-                completeJob({ job, code, reg, pi, ctx });
-            });
-
-            renderSidebar(reg, ctx);
             return {
                 content: [textBlock(
                     `Agent running in background with ID: ${id}. Output is being written to: ${logPath}\n` +

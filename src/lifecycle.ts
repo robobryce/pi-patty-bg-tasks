@@ -8,19 +8,71 @@
 
 import { readdirSync, statSync as fsStatSync, unlinkSync as fsUnlink } from "node:fs";
 import { join as pathJoin } from "node:path";
-import { setTimeout as nodeSetTimeout } from "node:timers";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-    DEFAULT_TIMEOUT_MS,
     EVENT,
+    MAX_CONCURRENT_JOBS,
     type Job,
     type JobStatus,
     type UiContext,
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
 import { killProcessTree, processExists } from "./spawn.ts";
-import { forget, renderSidebar } from "./registry.ts";
+import { atConcurrencyLimit, forget, renderSidebar } from "./registry.ts";
+import { watchStalls } from "./monitoring.ts";
 import { formatDuration } from "./format.ts";
+
+// --- Background-job orchestration ----------------------------------------
+
+/** Throw a standard error when no concurrency slot is free. */
+export function assertJobSlot(reg: BackgroundRegistry): void {
+    if (atConcurrencyLimit(reg)) {
+        throw new Error(
+            `Max concurrent background jobs (${MAX_CONCURRENT_JOBS}) reached. ` +
+                `Kill or wait for existing jobs before starting new ones.`
+        );
+    }
+}
+
+/**
+ * Wire a background job's lifecycle: completion promise, abort controller,
+ * stall watcher, and the exit→completeJob hand-off. The job must already be in
+ * the registry. Returns the job's AbortController so callers can attach extra
+ * monitors (e.g. agent_bg's progress poller).
+ */
+export function startBackgroundJob(args: {
+    reg: BackgroundRegistry;
+    pi: ExtensionAPI;
+    ctx: UiContext;
+    job: Job;
+    exit: Promise<number | null>;
+    shouldNotify?: boolean;
+    onExit?: (code: number | null) => void;
+}): AbortController {
+    ensureCompletionPromise(args.job);
+    const jobAc = createJobAbort(args.reg, args.job.id);
+    const cancelStall = watchStalls({
+        jobId: args.job.id,
+        command: args.job.command,
+        logPath: args.job.logPath,
+        pi: args.pi,
+        onOversize: () => terminateJobSilently(args.reg, args.job),
+    });
+    jobAc.signal.addEventListener("abort", cancelStall, { once: true });
+    void args.exit.then((code) => {
+        args.onExit?.(code);
+        completeJob({
+            job: args.job,
+            code,
+            reg: args.reg,
+            pi: args.pi,
+            ctx: args.ctx,
+            shouldNotify: args.shouldNotify,
+        });
+    });
+    renderSidebar(args.reg, args.ctx);
+    return jobAc;
+}
 
 // --- Terminal-state marking ----------------------------------------------
 
@@ -195,36 +247,6 @@ export function backgroundActiveForeground(
         { deliverAs: "followUp", triggerTurn: true }
     );
     return true;
-}
-
-// --- Timeout -------------------------------------------------------------
-
-/**
- * Start a timeout timer that triggers `requestPause`. In non-interactive mode
- * there is no job_decide responder, so backgrounding is suppressed. Callers
- * must clear the timer with clearTimeout on early completion.
- */
-export function scheduleTimeout(args: {
-    requestPause: (reason: "timeout") => void;
-    command: string;
-    reg: BackgroundRegistry;
-    toolCallId: string;
-    explicitMs?: number;
-    isAutoBackgroundAllowed: (command: string) => boolean;
-}): NodeJS.Timeout {
-    const ms = args.explicitMs ?? DEFAULT_TIMEOUT_MS;
-    const t = nodeSetTimeout(() => {
-        if (args.reg.nonInteractive) return;
-        if (!args.reg.foreground.has(args.toolCallId)) return;
-        if (!args.isAutoBackgroundAllowed(args.command)) {
-            const slot = args.reg.foreground.get(args.toolCallId);
-            if (slot && slot.pid > 0) killProcessTree(slot.pid, "SIGTERM");
-            return;
-        }
-        args.requestPause("timeout");
-    }, ms);
-    t.unref();
-    return t;
 }
 
 // --- Completion notification ---------------------------------------------

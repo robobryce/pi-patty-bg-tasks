@@ -37,10 +37,6 @@ void describe("input steering (cooperative scheduler)", () => {
         const handler = registerAndGetHandler(reg, sent, resubmitted);
         reg.activeToolCallId = "tc-steer";
         reg.foreground.set("tc-steer", {
-            toolCallId: "tc-steer",
-            pid: 4321,
-            command: "pnpm test",
-            logPath: "/tmp/steer.log",
             requestPause: (reason) => {
                 pauseReason = reason;
             },
@@ -77,10 +73,6 @@ void describe("input steering (cooperative scheduler)", () => {
         const handler = registerAndGetHandler(reg, sent, resubmitted);
         reg.activeToolCallId = "tc-steer2";
         reg.foreground.set("tc-steer2", {
-            toolCallId: "tc-steer2",
-            pid: 4322,
-            command: "pnpm test",
-            logPath: "/tmp/steer2.log",
             requestPause: () => {},
         });
 
@@ -126,10 +118,6 @@ void describe("input steering (cooperative scheduler)", () => {
         const handler = registerAndGetHandler(reg, sent, resubmitted);
         reg.activeToolCallId = "tc-ext";
         reg.foreground.set("tc-ext", {
-            toolCallId: "tc-ext",
-            pid: 4323,
-            command: "pnpm test",
-            logPath: "/tmp/ext.log",
             requestPause: () => {},
         });
 

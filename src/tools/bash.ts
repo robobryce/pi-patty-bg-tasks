@@ -21,7 +21,6 @@ import { unlinkSync } from "node:fs";
 import type { BackgroundRegistry } from "../state.ts";
 import {
     DEFAULT_TIMEOUT_MS,
-    MAX_CONCURRENT_JOBS,
     OUTPUT_PREVIEW_CHARS,
     QUICK_COMPLETION_MS,
     type ForegroundSlot,
@@ -32,24 +31,21 @@ import { spawnWithFileOutput, killProcessTree } from "../spawn.ts";
 import { pollFileTail } from "../output.ts";
 import {
     add,
+    markStarted,
     nextJobId,
     logPathFor,
     readLogTail,
-    renderSidebar,
 } from "../registry.ts";
 import {
-    completeJob,
-    createJobAbort,
+    assertJobSlot,
     detectBlockedSleep,
-    ensureCompletionPromise,
     isAutoBackgroundAllowed,
     isBlankCommand,
     isSignalExit,
     requestJobDecision,
     requireExistingCwd,
-    terminateJobSilently,
+    startBackgroundJob,
 } from "../lifecycle.ts";
-import { watchStalls } from "../monitoring.ts";
 import { textBlock } from "../format.ts";
 import { bashParamSchema } from "./bash-params.ts";
 
@@ -97,16 +93,7 @@ export function registerBashTool(
                 );
             }
 
-            // Enforce the concurrent-job limit.
-            const running = Array.from(reg.jobs.values()).filter(
-                (j) => j.status === "running"
-            );
-            if (running.length >= MAX_CONCURRENT_JOBS) {
-                throw new Error(
-                    `Max concurrent background jobs (${MAX_CONCURRENT_JOBS}) reached. ` +
-                        `Kill or wait for existing jobs before starting new ones.`
-                );
-            }
+            assertJobSlot(reg);
 
             // Explicit background mode — spawn and return immediately.
             if (p.run_in_background) {
@@ -186,13 +173,7 @@ async function runForeground(args: {
         else signal.addEventListener("abort", onTurnAbort);
     }
 
-    const slot: ForegroundSlot = {
-        toolCallId,
-        command,
-        logPath,
-        pid: spawned.pid,
-        requestPause,
-    };
+    const slot: ForegroundSlot = { requestPause };
     reg.foreground.set(toolCallId, slot);
     reg.activeToolCallId = toolCallId;
 
@@ -274,25 +255,10 @@ async function runForeground(args: {
         if (race.kind === "backgrounded") {
             handedToBackground = true;
             job.isBackgrounded = true;
-            // Now a real background job — count it as started.
-            reg.totalStarted++;
-            ensureCompletionPromise(job);
+            // Foreground job promoted to background — now count it as started.
+            markStarted(reg);
+            startBackgroundJob({ reg, pi, ctx, job, exit: spawned.exit });
 
-            const jobAc = createJobAbort(reg, id);
-            const cancelStall = watchStalls({
-                jobId: id,
-                command,
-                logPath,
-                pi,
-                onOversize: () => terminateJobSilently(reg, job),
-            });
-            jobAc.signal.addEventListener("abort", cancelStall, { once: true });
-
-            void spawned.exit.then((code) => {
-                completeJob({ job, code, reg, pi, ctx });
-            });
-
-            renderSidebar(reg, ctx);
             if (race.reason === "timeout") {
                 requestJobDecision({
                     reg,
@@ -358,24 +324,9 @@ function spawnBackground(args: {
         toolCallId: args.toolCallId,
         isBackgrounded: true,
     };
-    ensureCompletionPromise(job);
     add(args.reg, job);
+    startBackgroundJob({ reg: args.reg, pi: args.pi, ctx: args.ctx, job, exit: spawned.exit });
 
-    const jobAc = createJobAbort(args.reg, id);
-    const cancelStall = watchStalls({
-        jobId: id,
-        command: args.command,
-        logPath,
-        pi: args.pi,
-        onOversize: () => terminateJobSilently(args.reg, job),
-    });
-    jobAc.signal.addEventListener("abort", cancelStall, { once: true });
-
-    void spawned.exit.then((code) => {
-        completeJob({ job, code, reg: args.reg, pi: args.pi, ctx: args.ctx });
-    });
-
-    renderSidebar(args.reg, args.ctx);
     return {
         content: [
             textBlock(

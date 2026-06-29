@@ -48,11 +48,10 @@ export interface Job {
 
 export type BackgroundReason = "manual" | "timeout";
 
+/** Transient handle for an in-flight foreground bash command, keyed by
+ *  toolCallId in the registry. Ctrl+Shift+B and the timeout timer call
+ *  requestPause to flip the command into the background. */
 export interface ForegroundSlot {
-    toolCallId: string;
-    command: string;
-    logPath: string;
-    pid: number;
     requestPause: (reason: BackgroundReason) => void;
 }
 

@@ -9,6 +9,7 @@
 import { statSync, unlinkSync } from "node:fs";
 import { formatDuration } from "./format.ts";
 import {
+    MAX_CONCURRENT_JOBS,
     PREVIEW_CHARS,
     RECENT_TERMINAL_KEEP,
     type Job,
@@ -17,7 +18,7 @@ import {
 import type { BackgroundRegistry } from "./state.ts";
 import { readBoundedTail } from "./output.ts";
 
-// ─── ID 생성 ────────────────────────────────────────────────────────────────────────────────
+// --- ID generation -------------------------------------------------------
 
 export function nextJobId(reg: BackgroundRegistry): string {
     return `job-${process.pid}-${++reg.counter}`;
@@ -27,13 +28,28 @@ export function logPathFor(jobId: string): string {
     return `/tmp/pi-bg-${jobId}.log`;
 }
 
-// ─── 레지스트리 변경 ───────────────────────────────────────────────────────────────────────────
+// --- Registry mutations --------------------------------------------------
 
-/** Add a brand-new running job. Returns the job (with `donePromise` set). */
+/** Record that a job has started (lifetime counter). */
+export function markStarted(reg: BackgroundRegistry): void {
+    reg.totalStarted++;
+}
+
+/** Add a brand-new running job and count it as started. */
 export function add(reg: BackgroundRegistry, job: Job): Job {
     reg.jobs.set(job.id, job);
-    reg.totalStarted++;
+    markStarted(reg);
     return job;
+}
+
+/** True once the running-job count has reached the concurrency cap. Counts with
+ *  a short-circuit so it stops at the cap instead of scanning the whole map. */
+export function atConcurrencyLimit(reg: BackgroundRegistry): boolean {
+    let n = 0;
+    for (const job of reg.jobs.values()) {
+        if (job.status === "running" && ++n >= MAX_CONCURRENT_JOBS) return true;
+    }
+    return false;
 }
 
 /**

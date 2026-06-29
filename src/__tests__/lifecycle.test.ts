@@ -179,10 +179,6 @@ void describe("backgroundActiveForeground", () => {
         let pauseReason: string | undefined;
         reg.activeToolCallId = "tc-manual";
         reg.foreground.set("tc-manual", {
-            toolCallId: "tc-manual",
-            pid: -1,
-            command: "python long.py",
-            logPath: "/tmp/manual.log",
             requestPause: (reason) => {
                 pauseReason = reason;
             },
