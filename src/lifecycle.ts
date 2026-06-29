@@ -201,6 +201,10 @@ export function abortJob(reg: BackgroundRegistry, jobId: string): void {
  * no proc handle after session restore).
  */
 export function terminateJob(job: Job): void {
+    // Monitors carry a transient teardown hook (follower + ws socket). A ws
+    // monitor has pid 0, so the process-tree kill below is a no-op for it and
+    // job.stop does the real work; a command monitor needs both.
+    job.stop?.();
     if (job.proc && processExists(job.proc.pid)) {
         killProcessTree(job.proc.pid, "SIGTERM");
         return;
@@ -392,6 +396,13 @@ export function reviveAndValidate(
     job: Job
 ): "alive" | "completed" {
     if (job.status !== "running") return "completed";
+    // Monitors cannot be revived: their line-follower and (for ws) socket do not
+    // survive a restart, so a "running" monitor from a prior process has no
+    // emitter. Mark it terminal rather than leave a zombie that never streams.
+    if (job.kind === "monitor") {
+        markTerminal(job, "failed");
+        return "completed";
+    }
     // A job spawned by a *different* pi process (a full restart, not a /reload)
     // cannot be safely managed — the OS may have recycled its PID, and signalling
     // it would hit an unrelated process group. Only revive jobs from the current

@@ -70,6 +70,7 @@ export function registerBashTool(
             "Run shell commands; long-running commands auto-background or use run_in_background=true",
         promptGuidelines: [
             "Use bash with run_in_background=true when a command is expected to run for a long time.",
+            "run_in_background is for ONE notification (the command exits when done). For per-event streaming (watching logs, polling an API, file changes), use the monitor tool instead.",
             "Check background job status with jobs action='list'.",
             "Read background output with jobs action='output'.",
         ],

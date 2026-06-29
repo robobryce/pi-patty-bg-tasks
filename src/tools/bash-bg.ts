@@ -32,6 +32,7 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
         promptSnippet: "Start long-running commands directly in the background",
         promptGuidelines: [
             "Use bash_bg when a command should definitely start in the background.",
+            "bash_bg gives ONE completion notification. For a per-event stream (tail -f | grep, poll loop, file watch, WebSocket feed), use the monitor tool instead.",
             "Give the job a name when it will be easier to track in jobs list.",
         ],
         parameters: Type.Object({

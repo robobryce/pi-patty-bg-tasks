@@ -119,6 +119,31 @@ Clone yourself a coworker. Spawns a detached `pi -p` process with a continuity p
 | `prompt` | Task description for the background agent |
 | `cwd` | Working directory (default: current) |
 
+### monitor
+
+Stream events instead of waiting once. Where `bash_bg`/`run_in_background` give a **single** completion ping, `monitor` turns a process into a **live event stream** — each stdout line (or WebSocket frame) becomes one notification delivered straight into the agent's turn while it keeps working. This is the streaming half of Claude Code's split: one-shot "wait until done" stays on `run_in_background`; per-event "tell me each time X happens" is `monitor`.
+
+```js
+// Notify on every error line, indefinitely
+monitor({ command: "tail -f deploy.log | grep --line-buffered -E 'ERROR|Traceback'", description: "errors in deploy.log" })
+
+// Emit each CI check as it lands, stop when the run finishes
+monitor({ command: "…poll loop that exits…", description: "CI checks for PR 123" })
+
+// Subscribe to a WebSocket feed — each text frame is an event
+monitor({ ws: { url: "wss://events.example.com/stream" }, description: "deploy events", persistent: true })
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `command` | Shell script; each stdout line is an event. Mutually exclusive with `ws`. |
+| `ws` | WebSocket source `{ url, protocols? }`; each text frame is an event. Mutually exclusive with `command`. |
+| `description` | Shown on every notification (make it specific). **Required.** |
+| `persistent` | Run for the whole session (no timeout); stop with `jobs action='kill'`. Default `false`. |
+| `timeout_ms` | Deadline before the watch is killed (default `300000`, max `3600000`). Ignored when `persistent`. |
+
+Monitors share the same job registry, sidebar (shown with a `◉` pill), and `jobs` manager as the background tools — only stdout is the event stream (stderr is captured to a separate `.err` file), output is line-buffered so use `grep --line-buffered`/`awk fflush()` (never `head`), and a monitor that floods events is auto-stopped so you can restart with a tighter filter. The `ws` source needs a runtime with a global `WebSocket` (Node 22+); otherwise use a `command` like `websocat`.
+
 ## Keyboard Shortcuts
 
 Keep your hands on the keyboard.

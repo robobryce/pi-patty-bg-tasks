@@ -149,8 +149,9 @@ export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
         if (job.status !== "running") continue;
         runningCount++;
         const duration = formatDuration(Date.now() - job.startTime);
+        const glyph = job.kind === "monitor" ? "◉" : "▶";
         pills.push(
-            `▶ ${jobLabel(job)}: ${job.command.slice(0, PREVIEW_CHARS.sidebar)} (${duration})`
+            `${glyph} ${jobLabel(job)}: ${job.command.slice(0, PREVIEW_CHARS.sidebar)} (${duration})`
         );
     }
 
