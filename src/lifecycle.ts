@@ -6,7 +6,8 @@
  * Monitoring (progress polling, stall detection) lives in monitoring.ts.
  */
 
-import { readdirSync, statSync as fsStatSync, unlinkSync as fsUnlink } from "node:fs";
+import { statSync as fsStatSync } from "node:fs";
+import { readdir, stat, unlink } from "node:fs/promises";
 import { join as pathJoin } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
@@ -18,7 +19,7 @@ import {
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
 import { killProcessTree, processExists } from "./spawn.ts";
-import { atConcurrencyLimit, forget, renderSidebar } from "./registry.ts";
+import { LOG_DIR, atConcurrencyLimit, forget, renderSidebar } from "./registry.ts";
 import { watchStalls } from "./monitoring.ts";
 import { formatDuration } from "./format.ts";
 
@@ -443,24 +444,29 @@ export function detectNonInteractive(
 
 // --- Cleanup -------------------------------------------------------------
 
-/** Remove background log files older than 24 hours. Scoped to the pi-bg- prefix only. */
-export function cleanupStaleRuntimeArtifacts(): void {
+/**
+ * Remove background log files older than 24 hours. Scans only the dedicated
+ * LOG_DIR (not all of /tmp) and runs off the event loop via fs/promises, so it
+ * never blocks session start. Never rejects.
+ */
+export async function cleanupStaleRuntimeArtifacts(): Promise<void> {
     const MAX_AGE_MS = 24 * 60 * 60 * 1000;
     const now = Date.now();
-    let entries;
+    let names: string[];
     try {
-        entries = readdirSync("/tmp", { withFileTypes: true });
+        names = await readdir(LOG_DIR);
     } catch {
-        return;
+        return; // dir doesn't exist yet — nothing to clean
     }
-    for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.startsWith("pi-bg-")) continue;
-        const fullPath = pathJoin("/tmp", entry.name);
-        try {
-            const { mtimeMs } = fsStatSync(fullPath);
-            if (now - mtimeMs > MAX_AGE_MS) fsUnlink(fullPath);
-        } catch {
-            /* already gone */
-        }
-    }
+    await Promise.all(
+        names.map(async (name) => {
+            const fullPath = pathJoin(LOG_DIR, name);
+            try {
+                const { mtimeMs } = await stat(fullPath);
+                if (now - mtimeMs > MAX_AGE_MS) await unlink(fullPath);
+            } catch {
+                /* already gone */
+            }
+        })
+    );
 }

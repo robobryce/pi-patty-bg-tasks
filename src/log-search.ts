@@ -29,42 +29,59 @@ export interface LogSearchResult {
     groups: LogSearchGroup[];
 }
 
+interface ScanOptions {
+    maxHitsPerJob: number;
+    maxLineChars: number;
+}
+
 export async function searchLogs(args: {
     jobs: Iterable<Job>;
     pattern: RegExp;
     maxHitsPerJob: number;
     maxLineChars?: number;
 }): Promise<LogSearchResult> {
-    const groups = new Map<string, LogSearchGroup>();
-    const maxLineChars = args.maxLineChars ?? PREVIEW_CHARS.line;
+    const options: ScanOptions = {
+        maxHitsPerJob: args.maxHitsPerJob,
+        maxLineChars: args.maxLineChars ?? PREVIEW_CHARS.line,
+    };
+    const jobs = [...args.jobs];
 
-    for (const job of args.jobs) {
-        const scanned = await scanLogFile(job, args.pattern, groups, {
-            maxHitsPerJob: args.maxHitsPerJob,
-            maxLineChars,
-        });
-        if (!scanned) {
-            scanText(
-                job,
-                args.pattern,
-                readLogTail(job, OUTPUT_PREVIEW_CHARS),
-                groups,
-                { maxHitsPerJob: args.maxHitsPerJob, maxLineChars }
-            );
-        }
-    }
+    // Each job's log is an independent stream — scan them concurrently. Results
+    // come back in jobs[] order, so group ordering stays stable.
+    const groups = (
+        await Promise.all(jobs.map((job) => scanOneJob(job, args.pattern, options)))
+    ).filter((g) => g.count > 0);
 
-    const orderedGroups = Array.from(groups.values());
     let totalHits = 0;
-    for (const group of orderedGroups) totalHits += group.count;
-    return { totalHits, groups: orderedGroups };
+    for (const group of groups) totalHits += group.count;
+    return { totalHits, groups };
 }
 
-async function scanLogFile(
+/** Scan one job's log (streamed line-by-line, falling back to the tail when the
+ *  file cannot be streamed), returning its hit group. */
+async function scanOneJob(
     job: Job,
     re: RegExp,
-    groups: Map<string, LogSearchGroup>,
-    options: { maxHitsPerJob: number; maxLineChars: number }
+    options: ScanOptions
+): Promise<LogSearchGroup> {
+    const group: LogSearchGroup = { jobId: job.id, name: job.name, count: 0, hits: [] };
+    const scanned = await streamLogFile(job, re, group, options);
+    if (!scanned) {
+        scanTailText(job, re, readLogTail(job, OUTPUT_PREVIEW_CHARS), group, options);
+    }
+    return group;
+}
+
+function record(group: LogSearchGroup, hit: LogSearchHit, maxHitsPerJob: number): void {
+    group.count++;
+    if (group.hits.length < maxHitsPerJob) group.hits.push(hit);
+}
+
+async function streamLogFile(
+    job: Job,
+    re: RegExp,
+    group: LogSearchGroup,
+    options: ScanOptions
 ): Promise<boolean> {
     return await new Promise<boolean>((resolve) => {
         let lineNo = 0;
@@ -75,9 +92,8 @@ async function scanLogFile(
         rl.on("line", (line) => {
             sawFile = true;
             lineNo++;
-            re.lastIndex = 0;
             if (re.test(line)) {
-                recordSearchHit(groups, job, {
+                record(group, {
                     path: job.logPath,
                     line: lineNo,
                     text: truncateLine(line, options.maxLineChars),
@@ -88,18 +104,17 @@ async function scanLogFile(
     });
 }
 
-function scanText(
+function scanTailText(
     job: Job,
     re: RegExp,
     text: string,
-    groups: Map<string, LogSearchGroup>,
-    options: { maxHitsPerJob: number; maxLineChars: number }
+    group: LogSearchGroup,
+    options: ScanOptions
 ): void {
     const lines = text.split("\n");
     for (let i = 0; i < lines.length; i++) {
-        re.lastIndex = 0;
         if (re.test(lines[i])) {
-            recordSearchHit(groups, job, {
+            record(group, {
                 path: `${job.logPath} (log tail)`,
                 line: i + 1,
                 text: truncateLine(lines[i], options.maxLineChars),
@@ -111,23 +126,4 @@ function scanText(
 function truncateLine(line: string, maxChars: number): string {
     if (line.length <= maxChars) return line;
     return `${line.slice(0, maxChars)}...[truncated]`;
-}
-
-function recordSearchHit(
-    groups: Map<string, LogSearchGroup>,
-    job: Job,
-    hit: LogSearchHit,
-    maxHitsPerJob: number
-): void {
-    const group = groups.get(job.id) ?? {
-        jobId: job.id,
-        name: job.name,
-        count: 0,
-        hits: [],
-    };
-    group.count++;
-    if (group.hits.length < maxHitsPerJob) {
-        group.hits.push(hit);
-    }
-    groups.set(job.id, group);
 }

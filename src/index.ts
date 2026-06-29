@@ -102,7 +102,7 @@ export default function (pi: ExtensionAPI): void {
             }
         }
 
-        cleanupStaleRuntimeArtifacts();
+        void cleanupStaleRuntimeArtifacts();
     });
 
     // ── Session shutdown ──────────────────────────────────────────

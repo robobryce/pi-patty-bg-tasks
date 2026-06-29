@@ -24,8 +24,12 @@ export function nextJobId(reg: BackgroundRegistry): string {
     return `job-${process.pid}-${++reg.counter}`;
 }
 
+/** Dedicated log directory. Keeping logs in their own dir (not loose in /tmp)
+ *  keeps the stale-log sweep bounded — it lists only our files. */
+export const LOG_DIR = "/tmp/pi-bg";
+
 export function logPathFor(jobId: string): string {
-    return `/tmp/pi-bg-${jobId}.log`;
+    return `${LOG_DIR}/${jobId}.log`;
 }
 
 // --- Registry mutations --------------------------------------------------

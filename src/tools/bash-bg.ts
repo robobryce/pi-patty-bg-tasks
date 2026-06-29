@@ -28,7 +28,7 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
         label: "Background Bash",
         description:
             "Start a bash command in the background immediately. " +
-            "Output is saved to /tmp/pi-bg-<jobId>.log.",
+            "Output is saved to /tmp/pi-bg/<jobId>.log.",
         promptSnippet: "Start long-running commands directly in the background",
         promptGuidelines: [
             "Use bash_bg when a command should definitely start in the background.",
