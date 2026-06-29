@@ -1,14 +1,14 @@
 /**
- * `jobs` 툴 — 백그라운드 잡 관리.
+ * `jobs` tool — manage background jobs.
  *
- * 액션:
- *   - list: 모든 잡 (현재 + 최근 종료) 출력
- *   - output: 특정 잡의 로그 꼬리 읽기
- *   - kill: 특정 잡 종료
- *   - attach: 잡이 끝날 때까지 기다린 뒤 출력 반환
- *   - search: 정규식으로 모든 잡 출력 검색 (v0.2 신규)
- *   - cleanup: 종료된 잡 모두 제거 (v0.2 신규)
- *   - stats: 집계 메트릭 (v0.2 신규)
+ * Actions:
+ *   - list: show all jobs (running + recently terminal)
+ *   - output: read a job's log tail (non-blocking peek)
+ *   - kill: terminate a job
+ *   - attach: follow a job's live output and wait for it to finish
+ *   - search: regex-search all job output
+ *   - cleanup: purge terminal jobs
+ *   - stats: aggregate metrics
  */
 
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
@@ -28,7 +28,8 @@ import {
     readLogTail,
     renderSidebar,
 } from "../registry.ts";
-import { formatDuration, formatJobLine, textBlock } from "../format.ts";
+import { formatDuration, formatJobLine, jobLabel, textBlock } from "../format.ts";
+import { pollFileTail } from "../output.ts";
 import { searchLogs } from "../log-search.ts";
 import {
     ensureCompletionPromise,
@@ -51,7 +52,7 @@ export function registerJobsTool(
             "list: show all jobs",
             "output: show the log tail for one job",
             "kill: terminate a job",
-            "attach: wait for a job to finish and report status; use output for logs",
+            "attach: follow a job's live output and wait for it to finish (use output for a non-blocking peek)",
             "search: regex-search all job output",
             "cleanup: purge terminal jobs",
             "stats: show aggregate metrics",
@@ -139,7 +140,7 @@ async function outputAction(
     const job = findJob(reg, jobId);
     if (!job) throw new Error(`Job not found: ${jobId}`);
     const out = readLogTail(job, OUTPUT_PREVIEW_CHARS).trimEnd();
-    const label = job.name ?? job.id;
+    const label = jobLabel(job);
     return {
         content: [
             textBlock(
@@ -186,44 +187,67 @@ async function attachAction(
 ): Promise<AgentToolResult<undefined>> {
     const job = findJob(reg, jobId);
     if (!job) throw new Error(`Job not found: ${jobId}`);
+    const label = jobLabel(job);
 
     const skipWait =
         reg.pendingDecisionJobId === job.id && job.status === "running";
 
     if (job.status === "running" && waitForCompletion && !skipWait) {
         ensureCompletionPromise(job);
-        // We're actively watching this job — suppress its separate completion
-        // notice so the attach result is the single notification.
+        // We're actively following this job — suppress its separate completion
+        // notice so the attach result is the single notification. Undone on the
+        // abort path below, so a job we detach from still reports when it ends.
         job.outputConsumed = true;
 
-        // Check immediately whether the OS process already died.
+        // Bail early if the OS process already died.
         if (job.pid > 0 && !processExists(job.pid)) {
             markTerminal(job, "failed");
         }
 
         onUpdate?.({
             content: [
-                textBlock(`Attaching to ${job.name ?? job.id} (${job.status})...`),
+                textBlock(`Following ${label} live output — waiting for it to finish…`),
             ],
             details: undefined,
         });
 
-        if (signal && !signal.aborted) {
-            const abortPromise = new Promise<void>((resolve) => {
-                signal.addEventListener("abort", () => resolve(), { once: true });
-            });
-            await Promise.race([job.donePromise, abortPromise]);
-        } else {
-            await job.donePromise;
+        // Stream the live log tail while we wait, so "attach" shows progress
+        // instead of sitting silent.
+        const poller = pollFileTail(job.logPath, (text) => {
+            onUpdate?.({ content: [textBlock(text)], details: undefined });
+        });
+        try {
+            if (signal && !signal.aborted) {
+                const abortPromise = new Promise<void>((resolve) => {
+                    signal.addEventListener("abort", () => resolve(), { once: true });
+                });
+                await Promise.race([job.donePromise, abortPromise]);
+            } else {
+                await job.donePromise;
+            }
+        } finally {
+            poller.stop();
+        }
+
+        if (job.status === "running") {
+            // Aborted before completion — we never reported the finish, so let
+            // the job's own completion notice fire later.
+            job.outputConsumed = false;
+            return {
+                content: [
+                    textBlock(
+                        `Stopped following ${label} — it's still running in the background. Use jobs output to check on it.`
+                    ),
+                ],
+                details: undefined,
+            };
         }
     }
 
-    // Compact result — point at `jobs output` for the logs instead of dumping them.
-    const label = job.name ?? job.id;
-    const message = `Attach finished for ${label}. Status: ${job.status}`;
+    const message = `${label} finished. Status: ${job.status}`;
     ctx.ui.notify(message, job.status === "failed" ? "error" : "info");
     return {
-        content: [textBlock(`${message}. Use jobs output for logs.`)],
+        content: [textBlock(`${message}. Use jobs output for the full log.`)],
         details: undefined,
     };
 }

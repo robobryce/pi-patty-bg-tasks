@@ -21,7 +21,7 @@ import type { BackgroundRegistry } from "./state.ts";
 import { killProcessTree, processExists } from "./spawn.ts";
 import { LOG_DIR, atConcurrencyLimit, forget, renderSidebar } from "./registry.ts";
 import { watchStalls } from "./monitoring.ts";
-import { formatDuration } from "./format.ts";
+import { formatDuration, jobLabel } from "./format.ts";
 
 // --- Background-job orchestration ----------------------------------------
 
@@ -316,7 +316,7 @@ export function requestJobDecision(args: {
     timeoutMs: number;
 }): void {
     args.reg.pendingDecisionJobId = args.job.id;
-    const label = args.job.name ? `"${args.job.name}"` : args.job.id;
+    const label = `"${jobLabel(args.job)}"`;
     const elapsed = formatDuration(args.timeoutMs);
 
     args.ctx.ui.notify(`Backgrounded ${label} after ${elapsed}; still running.`, "info");

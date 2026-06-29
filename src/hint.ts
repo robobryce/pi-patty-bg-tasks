@@ -9,6 +9,15 @@ import type { UiContext } from "./types.ts";
 const HINT_KEY = "bg-hint";
 
 /**
+ * Ref-count of foreground commands currently showing the hint. The widget is a
+ * single shared key, but bash commands run in parallel — so we only render it on
+ * the 0→1 transition and clear it on the last 1→0, keeping the hint up as long
+ * as any foreground command is still running. Each caller must pair exactly one
+ * showBackgroundHint() with one clearBackgroundHint().
+ */
+let activeHints = 0;
+
+/**
  * The key to press to background, as shown in the hint. Inside a tmux session
  * `ctrl+b` is tmux's prefix key, so it must be pressed twice — Claude Code
  * shows the same "(twice)" note.
@@ -19,14 +28,21 @@ function backgroundHintLabel(): string {
         : "ctrl+b to run in background";
 }
 
-/** Show the background hint below the editor. */
+/** Show the background hint below the editor (idempotent across parallel commands). */
 export function showBackgroundHint(ctx: UiContext): void {
-    ctx.ui.setWidget(HINT_KEY, [`(${backgroundHintLabel()})`], {
-        placement: "belowEditor",
-    });
+    activeHints++;
+    if (activeHints === 1) {
+        ctx.ui.setWidget(HINT_KEY, [`(${backgroundHintLabel()})`], {
+            placement: "belowEditor",
+        });
+    }
 }
 
-/** Clear the background hint. Safe to call when no hint is shown. */
+/** Release one hint; clears the widget only when the last command is done. */
 export function clearBackgroundHint(ctx: UiContext): void {
-    ctx.ui.setWidget(HINT_KEY, undefined);
+    if (activeHints === 0) return;
+    activeHints--;
+    if (activeHints === 0) {
+        ctx.ui.setWidget(HINT_KEY, undefined);
+    }
 }

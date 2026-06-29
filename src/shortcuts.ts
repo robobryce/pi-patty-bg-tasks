@@ -28,7 +28,7 @@ export function registerShortcuts(
         handler: async (ctx) => handleCtrlB(reg, pi, ctx),
     });
 
-    // Alias for muscle memory and for when Ctrl+B is captured by tmux.
+    // Alias for muscle memory / terminals that remap Ctrl+B.
     pi.registerShortcut("ctrl+shift+b", {
         description: "Background the current foreground process (alias for Ctrl+B)",
         handler: async (ctx) => handleCtrlB(reg, pi, ctx),

@@ -20,7 +20,7 @@ import {
     reviveAndValidate,
     terminateJobSilently,
 } from "./lifecycle.ts";
-import { forget as forgetJob } from "./registry.ts";
+import { forget as forgetJob, stopSidebarTicker } from "./registry.ts";
 import {
     EVENT,
     PERSISTED_STATE_SCHEMA_VERSION,
@@ -107,6 +107,9 @@ export default function (pi: ExtensionAPI): void {
 
     // ── Session shutdown ──────────────────────────────────────────
     pi.on("session_shutdown", async (event, _ctx) => {
+        // Stop the live-duration ticker so the interval doesn't outlive the session.
+        stopSidebarTicker(reg);
+
         // On quit, kill all running background jobs to avoid orphans.
         if (event.reason === "quit") {
             for (const job of reg.jobs.values()) {

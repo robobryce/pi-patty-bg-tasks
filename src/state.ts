@@ -23,4 +23,9 @@ export class BackgroundRegistry {
     totalStarted = 0;
     totalDurationMs = 0;
     recentTerminal: Job[] = [];
+
+    /** Live-duration ticker for the sidebar pills; runs while jobs are alive. */
+    sidebarTimer: NodeJS.Timeout | undefined = undefined;
+    /** Last rendered sidebar content — used to skip redundant widget updates. */
+    lastSidebarContent: string | undefined = undefined;
 }

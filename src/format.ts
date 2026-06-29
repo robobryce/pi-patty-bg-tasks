@@ -5,6 +5,11 @@
 import type { Job } from "./types.ts";
 import { PREVIEW_CHARS } from "./types.ts";
 
+/** The standard short label for a job: its name, or its id when unnamed. */
+export function jobLabel(job: Job): string {
+    return job.name ?? job.id;
+}
+
 /** "1m23s" / "45s" / "0s" — short human-readable duration. */
 export function formatDuration(ms: number): string {
     const totalSecs = Math.floor(ms / 1000);

@@ -7,7 +7,7 @@
  */
 
 import { statSync, unlinkSync } from "node:fs";
-import { formatDuration } from "./format.ts";
+import { formatDuration, jobLabel } from "./format.ts";
 import {
     MAX_CONCURRENT_JOBS,
     PREVIEW_CHARS,
@@ -133,11 +133,13 @@ function deleteLogFile(logPath: string): number {
     }
 }
 
-// ─── 사이드바 렌더링 ────────────────────────────────────────────────────────────────────────────────
+// ─── Sidebar rendering ───────────────────────────────────────────────────
 
 /**
- * Render the pill-bar status widget and aggregate status-bar text.
- * Call after any state change that affects running-job count.
+ * Render the pill-bar status widget and aggregate status-bar text, and keep a
+ * 1 Hz ticker running while any job is alive so the durations stay live (the
+ * widget isn't redrawn on a timer otherwise). Re-renders only when the content
+ * actually changes. Call after any state change that affects running jobs.
  */
 export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
     const pills: string[] = [];
@@ -147,28 +149,50 @@ export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
         if (job.status !== "running") continue;
         runningCount++;
         const duration = formatDuration(Date.now() - job.startTime);
-        const icon = "▶";
-        const label = job.name ? `${job.name}` : job.id;
         pills.push(
-            `${icon} ${label}: ${job.command.slice(0, PREVIEW_CHARS.sidebar)} (${duration})`
+            `▶ ${jobLabel(job)}: ${job.command.slice(0, PREVIEW_CHARS.sidebar)} (${duration})`
         );
     }
 
     if (pills.length === 0) {
-        ctx.ui.setWidget("background-jobs", undefined);
-        ctx.ui.setStatus("background-jobs", undefined);
+        stopSidebarTicker(reg);
+        if (reg.lastSidebarContent !== undefined) {
+            reg.lastSidebarContent = undefined;
+            ctx.ui.setWidget("background-jobs", undefined);
+            ctx.ui.setStatus("background-jobs", undefined);
+        }
         return;
     }
-
-    ctx.ui.setWidget("background-jobs", pills);
 
     const parts = [`${runningCount} running`];
     if (reg.completedCount > 0) parts.push(`${reg.completedCount} done`);
     if (reg.failedCount > 0) parts.push(`${reg.failedCount} failed`);
-    ctx.ui.setStatus(
-        "background-jobs",
-        ctx.ui.theme.fg("accent", `▶ ${parts.join(", ")}`)
-    );
+    const statusText = `▶ ${parts.join(", ")}`;
+    const key = `${pills.join("\n")}|${statusText}`;
+
+    if (key !== reg.lastSidebarContent) {
+        reg.lastSidebarContent = key;
+        ctx.ui.setWidget("background-jobs", pills);
+        ctx.ui.setStatus("background-jobs", ctx.ui.theme.fg("accent", statusText));
+    }
+
+    ensureSidebarTicker(reg, ctx);
+}
+
+/** Start the live-duration ticker if not already running. */
+function ensureSidebarTicker(reg: BackgroundRegistry, ctx: UiContext): void {
+    if (reg.sidebarTimer) return;
+    const t = setInterval(() => renderSidebar(reg, ctx), 1000);
+    t.unref();
+    reg.sidebarTimer = t;
+}
+
+/** Stop the live-duration ticker (no running jobs, or on shutdown). */
+export function stopSidebarTicker(reg: BackgroundRegistry): void {
+    if (reg.sidebarTimer) {
+        clearInterval(reg.sidebarTimer);
+        reg.sidebarTimer = undefined;
+    }
 }
 
 // ─── 통계 ───────────────────────────────────────────────────────────────────────────────────

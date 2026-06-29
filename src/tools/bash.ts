@@ -206,6 +206,7 @@ async function runForeground(args: {
 
     let progressPoller: { stop: () => void } | undefined;
     let handedToBackground = false;
+    let hintShown = false;
 
     const cleanup = () => {
         progressPoller?.stop();
@@ -245,6 +246,7 @@ async function runForeground(args: {
             onUpdate?.({ content: [{ type: "text", text }], details: undefined });
         });
         showBackgroundHint(ctx);
+        hintShown = true;
 
         // Race: completion vs backgrounding.
         const race = await Promise.race<
@@ -281,7 +283,7 @@ async function runForeground(args: {
     } finally {
         // Single teardown for every exit path (return, throw, background hand-off).
         cleanup();
-        clearBackgroundHint(ctx);
+        if (hintShown) clearBackgroundHint(ctx);
         reg.foreground.delete(toolCallId);
         if (reg.activeToolCallId === toolCallId) reg.activeToolCallId = null;
         if (!handedToBackground) {

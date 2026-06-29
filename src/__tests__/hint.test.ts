@@ -47,6 +47,7 @@ void describe("background hint", () => {
             const line = calls[0].content?.[0] ?? "";
             assert.match(line, /ctrl\+b to run in background/);
             assert.ok(!/twice/.test(line));
+            clearBackgroundHint(ctx); // balance the ref-count
         });
     });
 
@@ -55,13 +56,25 @@ void describe("background hint", () => {
             const { calls, ctx } = makeCtx();
             showBackgroundHint(ctx);
             assert.match(calls[0].content?.[0] ?? "", /twice/);
+            clearBackgroundHint(ctx);
         });
     });
 
-    void it("clears the hint by setting undefined content", () => {
+    void it("ref-counts: stays up until the last parallel command clears", () => {
+        const { calls, ctx } = makeCtx();
+        showBackgroundHint(ctx); // 0 -> 1: renders
+        showBackgroundHint(ctx); // 1 -> 2: no extra render
+        assert.equal(calls.length, 1, "only the first show renders the widget");
+        clearBackgroundHint(ctx); // 2 -> 1: still up
+        assert.equal(calls.length, 1, "hint stays while a command remains");
+        clearBackgroundHint(ctx); // 1 -> 0: clears
+        assert.equal(calls.length, 2);
+        assert.equal(calls[1].content, undefined);
+    });
+
+    void it("clear is a no-op when nothing is shown", () => {
         const { calls, ctx } = makeCtx();
         clearBackgroundHint(ctx);
-        assert.equal(calls.length, 1);
-        assert.equal(calls[0].content, undefined);
+        assert.equal(calls.length, 0);
     });
 });
