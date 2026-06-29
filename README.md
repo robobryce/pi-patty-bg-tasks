@@ -183,6 +183,13 @@ A live pill widget keeps your running jobs in view — each with its duration an
 
 ## Releases
 
+### 1.0.2 — Ctrl+B parity & friendlier jobs
+
+- **Ctrl+B** is now the primary background shortcut (Ctrl+Shift+B stays as an alias), with a live `(ctrl+b to run in background)` hint under the editor while a command runs — matching Claude Code. Inside tmux it shows the "(twice)" note.
+- **`jobs attach` streams the job's live output** while it waits (it was silent before) and is reworded "Following … live output"; detaching leaves the job running.
+- **Sidebar pills tick live** — durations update every second instead of freezing at the value they were last drawn with.
+- Job-finished and timeout notices are **compact** (a one-line agent follow-up + a UI toast) — the agent stays informed without boxed spam.
+
 ### 1.0.1 — Claude Code parity (first published 1.x)
 
 The big one. The background engine was rewritten from the ground up to match Claude Code's architecture, with zero external dependencies. This is the first 1.x on npm, and it ships the parity rewrite alongside a solid round of correctness and performance hardening.
