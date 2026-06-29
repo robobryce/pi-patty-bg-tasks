@@ -165,11 +165,7 @@ async function killAction(
     renderSidebar(reg, ctx);
     return {
         content: [
-            textBlock(
-                job.tmux
-                    ? `Killed tmux window ${job.tmux.windowId} for ${job.name ?? job.id}`
-                    : `Sent SIGTERM to ${job.name ?? job.id} (process group)`
-            ),
+            textBlock(`Sent SIGTERM to ${job.name ?? job.id} (process group)`),
         ],
         details: undefined,
     };
@@ -193,8 +189,8 @@ async function attachAction(
     if (job.status === "running" && waitForCompletion && !skipWait) {
         ensureCompletionPromise(job);
 
-        // OS 프로세스가 이미 죽었는지 즉시 확인.
-        if (!job.tmux && job.pid > 0 && !processExists(job.pid)) {
+        // Check immediately whether the OS process already died.
+        if (job.pid > 0 && !processExists(job.pid)) {
             markTerminal(job, "failed");
         }
 
