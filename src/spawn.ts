@@ -1,6 +1,6 @@
 // src/spawn.ts
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 
 export interface SpawnResult {
@@ -10,14 +10,18 @@ export interface SpawnResult {
 }
 
 /**
- * Spawn `bash -c <command>` with stdout+stderr written directly to a file
- * descriptor. The child is detached so we can SIGTERM the whole process group.
+ * Spawn a child with stdout+stderr written directly to a file descriptor — the
+ * Claude Code pattern: the kernel writes output to disk with zero JS in the
+ * data path. Progress is read back by polling the file tail separately.
  *
- * This is the Claude Code pattern: the kernel writes output to disk with zero
- * JS involvement. Progress is extracted by polling the file tail separately.
+ * Pass `command` to run `bash -c <command>`, or `file`/`fileArgs` to exec a
+ * binary directly (e.g. agent_bg launching `pi -p`). The child is detached so
+ * the whole process group can be signalled.
  */
 export function spawnWithFileOutput(args: {
-    command: string;
+    command?: string;
+    file?: string;
+    fileArgs?: string[];
     cwd: string;
     logPath: string;
     signal?: AbortSignal;
@@ -25,33 +29,44 @@ export function spawnWithFileOutput(args: {
     mkdirSync(dirname(args.logPath), { recursive: true });
     const logFd = openSync(args.logPath, "w");
 
-    const proc = spawn("bash", ["-c", args.command], {
-        stdio: ["ignore", logFd, logFd],
-        cwd: args.cwd,
-        detached: true,
-        env: { ...process.env },
-    });
-    closeSync(logFd);
+    const [bin, binArgs]: [string, string[]] = args.file
+        ? [args.file, args.fileArgs ?? []]
+        : ["bash", ["-c", args.command ?? ""]];
 
-    if (!proc.pid) throw new Error("Failed to spawn process");
-    const pid = proc.pid;
-
-    // AbortSignal handling — kill process tree on abort.
-    const onAbort = () => killProcessTree(pid);
-    if (args.signal) {
-        if (args.signal.aborted) {
-            onAbort();
-        } else {
-            args.signal.addEventListener("abort", onAbort, { once: true });
-        }
+    let proc;
+    try {
+        proc = spawn(bin, binArgs, {
+            stdio: ["ignore", logFd, logFd],
+            cwd: args.cwd,
+            detached: true,
+            env: { ...process.env },
+        });
+    } finally {
+        closeSync(logFd);
     }
 
+    // Build the exit promise and attach the 'error' listener BEFORE any throw,
+    // so an asynchronous spawn failure (ENOENT / EMFILE / EAGAIN) can never
+    // surface as an uncaught exception that takes pi down.
     const exit = new Promise<number | null>((resolve) => {
         proc.on("close", (code) => resolve(code));
         proc.on("error", () => resolve(1));
-    }).finally(() => {
-        args.signal?.removeEventListener("abort", onAbort);
     });
+
+    if (!proc.pid) {
+        try { unlinkSync(args.logPath); } catch { /* best-effort */ }
+        throw new Error("Failed to spawn process");
+    }
+    const pid = proc.pid;
+
+    // Kill the process group on abort. Most callers manage abort themselves and
+    // do not pass a signal; this is offered for direct/background spawns.
+    const onAbort = () => killProcessTree(pid);
+    if (args.signal) {
+        if (args.signal.aborted) onAbort();
+        else args.signal.addEventListener("abort", onAbort, { once: true });
+    }
+    void exit.finally(() => args.signal?.removeEventListener("abort", onAbort));
 
     proc.unref();
 

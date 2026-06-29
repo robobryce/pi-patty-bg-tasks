@@ -7,8 +7,8 @@
  * streaming; completion is reported with a background-job notification.
  */
 
-import { spawn, execSync } from "node:child_process";
-import { createWriteStream, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
@@ -23,16 +23,20 @@ import {
     terminateJobSilently,
 } from "../lifecycle.ts";
 import { watchStalls } from "../monitoring.ts";
+import { spawnWithFileOutput, type SpawnResult } from "../spawn.ts";
 import { pollFileTail } from "../output.ts";
 import { textBlock } from "../format.ts";
 
-/** Resolve the full path to the pi binary. */
+/** Resolve the full path to the pi binary, memoised for the session. */
+let cachedPiBinary: string | undefined;
 function resolvePiBinary(): string {
+    if (cachedPiBinary !== undefined) return cachedPiBinary;
     try {
-        return execSync("which pi", { encoding: "utf-8", timeout: 3000 }).trim();
+        cachedPiBinary = execSync("which pi", { encoding: "utf-8", timeout: 3000 }).trim();
     } catch {
-        return "pi";
+        cachedPiBinary = "pi";
     }
+    return cachedPiBinary;
 }
 
 interface ContentMessage {
@@ -106,7 +110,6 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
 
             const id = nextJobId(reg);
             const logPath = logPathFor(id);
-            mkdirSync(logPath.replace(/\/[^/]+$/, ""), { recursive: true });
 
             // Build continuity prompt.
             const entries = ctx.sessionManager.getEntries();
@@ -132,30 +135,23 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
                 `@${promptFile}`,
             ];
 
-            let proc;
+            let spawned: SpawnResult;
             try {
-                proc = spawn(piBin, spawnArgs, {
-                    cwd, detached: true,
-                    stdio: ["pipe", "pipe", "pipe"],
+                spawned = spawnWithFileOutput({
+                    file: piBin,
+                    fileArgs: spawnArgs,
+                    cwd,
+                    logPath,
                 });
             } catch (err) {
-                try { unlinkSync(promptFile); } catch {}
+                try { unlinkSync(promptFile); } catch { /* already gone */ }
                 throw err;
             }
 
-            if (!proc.pid) {
-                try { unlinkSync(promptFile); } catch {}
-                throw new Error("Failed to spawn background agent process");
-            }
-
-            const logStream = createWriteStream(logPath, { flags: "w" });
-            proc.stdout?.pipe(logStream, { end: false });
-            proc.stderr?.pipe(logStream, { end: false });
-
             const job: Job = {
-                id, command: `pi -p (background agent)`, pid: proc.pid,
+                id, command: `pi -p (background agent)`, pid: spawned.pid,
                 startTime: Date.now(), status: "running", logPath,
-                proc, toolCallId, isBackgrounded: true,
+                toolCallId, isBackgrounded: true,
             };
             ensureCompletionPromise(job);
             add(reg, job);
@@ -174,16 +170,10 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
             });
             jobAc.signal.addEventListener("abort", cancelStall, { once: true });
 
-            let finalized = false;
-            const finalize = (code: number | null) => {
-                if (finalized) return;
-                finalized = true;
-                logStream.end();
+            void spawned.exit.then((code) => {
+                try { unlinkSync(promptFile); } catch { /* already gone */ }
                 completeJob({ job, code, reg, pi, ctx });
-                try { unlinkSync(promptFile); } catch {}
-            };
-            proc.on("close", finalize);
-            proc.on("error", () => finalize(1));
+            });
 
             renderSidebar(reg, ctx);
             return {

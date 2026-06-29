@@ -223,11 +223,24 @@ async function runForeground(args: {
     (timeoutTimer as NodeJS.Timeout).unref();
 
     let progressPoller: { stop: () => void } | undefined;
+    let handedToBackground = false;
 
     const cleanup = () => {
         progressPoller?.stop();
         clearTimeout(timeoutTimer);
         if (signal) signal.removeEventListener("abort", onTurnAbort);
+    };
+
+    // Foreground completion (quick or normal): read output, surface errors.
+    // Registry teardown happens in `finally` so no exit path can strand the job.
+    const finishForeground = (
+        code: number | null
+    ): AgentToolResult<BashToolDetails | undefined> => {
+        const output = readLogTail(job, OUTPUT_PREVIEW_CHARS);
+        if (code !== 0 && code !== null && !isSignalExit(code)) {
+            throw new Error(output || `Command exited with code ${code}`);
+        }
+        return { content: [textBlock(output || "(no output)")], details: undefined };
     };
 
     try {
@@ -241,22 +254,7 @@ async function runForeground(args: {
         ]);
 
         if (quickResult !== null) {
-            cleanup();
-            reg.foreground.delete(toolCallId);
-            if (reg.activeToolCallId === toolCallId) reg.activeToolCallId = null;
-            reg.jobs.delete(id);
-            const output = readLogTail(job, OUTPUT_PREVIEW_CHARS);
-            try { unlinkSync(logPath); } catch { /* best-effort */ }
-            if (
-                quickResult.code !== 0 &&
-                quickResult.code !== null &&
-                !isSignalExit(quickResult.code)
-            ) {
-                throw new Error(
-                    output || `Command exited with code ${quickResult.code}`
-                );
-            }
-            return { content: [textBlock(output || "(no output)")], details: undefined };
+            return finishForeground(quickResult.code);
         }
 
         // Still running — start progress polling.
@@ -274,9 +272,7 @@ async function runForeground(args: {
         ]);
 
         if (race.kind === "backgrounded") {
-            cleanup();
-            reg.foreground.delete(toolCallId);
-            if (reg.activeToolCallId === toolCallId) reg.activeToolCallId = null;
+            handedToBackground = true;
             job.isBackgrounded = true;
             // Now a real background job — count it as started.
             reg.totalStarted++;
@@ -318,18 +314,16 @@ async function runForeground(args: {
         }
 
         // Normal completion.
+        return finishForeground(race.code);
+    } finally {
+        // Single teardown for every exit path (return, throw, background hand-off).
         cleanup();
         reg.foreground.delete(toolCallId);
         if (reg.activeToolCallId === toolCallId) reg.activeToolCallId = null;
-        reg.jobs.delete(id);
-        const output = readLogTail(job, OUTPUT_PREVIEW_CHARS);
-        try { unlinkSync(logPath); } catch { /* best-effort */ }
-        if (race.code !== 0 && race.code !== null && !isSignalExit(race.code)) {
-            throw new Error(output || `Command exited with code ${race.code}`);
+        if (!handedToBackground) {
+            reg.jobs.delete(id);
+            try { unlinkSync(logPath); } catch { /* best-effort */ }
         }
-        return { content: [textBlock(output || "(no output)")], details: undefined };
-    } finally {
-        cleanup();
     }
 }
 

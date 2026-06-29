@@ -1,26 +1,33 @@
 // src/output.ts
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync, statSync } from "node:fs";
 import { FOREGROUND_TAIL_BYTES } from "./types.ts";
 
 /**
- * Read the tail of a log file, bounded by maxChars.
- * For large files, only the last maxChars bytes are read (O(maxChars), not O(fileSize)).
+ * Read the tail of a log file, bounded by maxChars. Only the last maxChars
+ * bytes are read (O(maxChars), not O(fileSize)). Opens once and fstats the
+ * descriptor — no separate path-stat, so no stat-then-read race.
  */
 export function readBoundedTail(logPath: string, maxChars: number): string {
+    let fd: number;
     try {
-        const { size } = statSync(logPath);
-        if (size === 0) return "(no output yet)";
-        if (size <= maxChars) return readFileSync(logPath, "utf-8");
-        const fd = openSync(logPath, "r");
-        try {
-            const buf = Buffer.alloc(maxChars);
-            readSync(fd, buf, 0, maxChars, Math.max(0, size - maxChars));
-            return `...[truncated, showing last ${maxChars} chars]\n${buf.toString("utf-8")}`;
-        } finally {
-            closeSync(fd);
-        }
+        fd = openSync(logPath, "r");
     } catch {
         return "(no output yet)";
+    }
+    try {
+        const { size } = fstatSync(fd);
+        if (size === 0) return "(no output yet)";
+        const toRead = Math.min(size, maxChars);
+        const buf = Buffer.alloc(toRead);
+        readSync(fd, buf, 0, toRead, Math.max(0, size - toRead));
+        const body = buf.toString("utf-8");
+        return size > maxChars
+            ? `...[truncated, showing last ${maxChars} chars]\n${body}`
+            : body;
+    } catch {
+        return "(no output yet)";
+    } finally {
+        closeSync(fd);
     }
 }
 

@@ -19,7 +19,7 @@ import {
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
 import { killProcessTree, processExists } from "./spawn.ts";
-import { findJob, forget, renderSidebar } from "./registry.ts";
+import { forget, renderSidebar } from "./registry.ts";
 import { formatDuration } from "./format.ts";
 
 // --- Terminal-state marking ----------------------------------------------
@@ -38,7 +38,9 @@ export function completeJob(args: {
     shouldNotify?: boolean;
 }): void {
     if (args.job.status !== "running") return;
-    const finished = findJob(args.reg, args.job.id) ?? args.job;
+    // The caller passes the authoritative Job (the object held in the registry),
+    // so no lookup is needed.
+    const finished = args.job;
     abortJob(args.reg, finished.id);
     markTerminal(finished, statusFromExit(args.code), args.code ?? undefined);
     if (args.shouldNotify !== false) {
@@ -394,7 +396,12 @@ export function reviveAndValidate(
     job: Job
 ): "alive" | "completed" {
     if (job.status !== "running") return "completed";
-    if (!processExists(job.pid)) {
+    // A job spawned by a *different* pi process (a full restart, not a /reload)
+    // cannot be safely managed — the OS may have recycled its PID, and signalling
+    // it would hit an unrelated process group. Only revive jobs from the current
+    // process. Job ids are `job-<spawning-pid>-<n>`.
+    const spawnedPid = Number.parseInt(job.id.split("-")[1] ?? "", 10);
+    if (spawnedPid !== process.pid || !processExists(job.pid)) {
         markTerminal(job, "failed");
         return "completed";
     }
