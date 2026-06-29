@@ -1,24 +1,24 @@
 /**
- * pi-patty-bg-tasks — pi 에이전트용 백그라운드 작업 확장.
+ * pi-patty-bg-tasks — background task extension for the pi agent.
  *
- * 5개의 툴을 등록한다:
- *   - bash (오버라이드)
+ * Registers five tools:
+ *   - bash (override)
  *   - bash_bg
  *   - jobs
  *   - job_decide
  *   - agent_bg
  *
- * 키보드 단축키와 슬래시 커맨드도 함께 등록한다.
+ * Also registers keyboard shortcuts and slash commands.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createBashTool } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
-import { isTmuxAvailable } from "./proc.ts";
 import {
     cleanupStaleRuntimeArtifacts,
     detectNonInteractive,
     reviveAndValidate,
+    terminateJobSilently,
 } from "./lifecycle.ts";
 import { forget as forgetJob } from "./registry.ts";
 import {
@@ -41,11 +41,11 @@ interface PersistedState {
     jobCounter?: number;
 }
 
-/** 확장 진입점. */
+/** Extension entry point. */
 export default function (pi: ExtensionAPI): void {
     const reg = new BackgroundRegistry();
 
-    // ── 툴 등록 ───────────────────────────────────────────────────
+    // ── Tool registration ─────────────────────────────────────────
     const originalBash = createBashTool(process.cwd());
     registerBashTool(pi, reg, originalBash);
     registerBashBgTool(pi, reg);
@@ -53,29 +53,19 @@ export default function (pi: ExtensionAPI): void {
     registerJobDecideTool(pi, reg);
     registerAgentBgTool(pi, reg);
 
-    // ── 단축키 / 커맨드 ───────────────────────────────────────────
+    // ── Shortcuts / commands ──────────────────────────────────────
     registerShortcuts(pi, reg);
     registerCommands(pi, reg);
     registerInputHandlers(pi, reg);
 
-
-    // ── 세션 시작 ─────────────────────────────────────────────────
+    // ── Session start ─────────────────────────────────────────────
     pi.on("session_start", async (_event, ctx) => {
-        reg.tmuxAvailable = isTmuxAvailable();
-        if (!reg.tmuxAvailable && !reg.tmuxWarningShown) {
-            reg.tmuxWarningShown = true;
-            ctx.ui.notify(
-                "⚠️ tmux not found — using direct process management",
-                "warning"
-            );
-        }
-
         reg.nonInteractive = detectNonInteractive(
             process.argv,
             Boolean(process.stdin.isTTY)
         );
 
-        // 직렬화된 백그라운드 잡 상태 복원 — 마지막 쓰기가 이김.
+        // Restore serialized background job state.
         const entries = ctx.sessionManager.getEntries();
         const stateEntries = entries.filter(
             (e) =>
@@ -85,11 +75,12 @@ export default function (pi: ExtensionAPI): void {
 
         for (const entry of stateEntries) {
             const data = entry.data as PersistedState;
+            if (data.schemaVersion !== PERSISTED_STATE_SCHEMA_VERSION) continue;
             if (data.jobs) {
                 for (const [id, job] of data.jobs) {
                     reviveAndValidate(reg, job);
                     if (job.status !== "running") {
-                        // 살아있지 않으면 즉시 카운터에 반영하고 map에서 제거.
+                        // Not alive — fold into the counter and drop from the map.
                         forgetJob(reg, job);
                     } else {
                         reg.jobs.set(id, job);
@@ -101,11 +92,20 @@ export default function (pi: ExtensionAPI): void {
             }
         }
 
-        cleanupStaleRuntimeArtifacts({ tmuxAvailable: reg.tmuxAvailable });
+        cleanupStaleRuntimeArtifacts();
     });
 
-    // ── 세션 종료 ─────────────────────────────────────────────────
-    pi.on("session_shutdown", async (_event, _ctx) => {
+    // ── Session shutdown ──────────────────────────────────────────
+    pi.on("session_shutdown", async (event, _ctx) => {
+        // On quit, kill all running background jobs to avoid orphans.
+        if (event.reason === "quit") {
+            for (const job of reg.jobs.values()) {
+                if (job.status === "running") {
+                    terminateJobSilently(reg, job);
+                }
+            }
+        }
+
         pi.appendEntry(EVENT.state, {
             schemaVersion: PERSISTED_STATE_SCHEMA_VERSION,
             jobs: Array.from(reg.jobs.entries()).map(([id, job]) => [
