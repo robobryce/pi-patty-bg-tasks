@@ -13,6 +13,7 @@ import {
     terminateJobSilently,
 } from "./lifecycle.ts";
 import { renderSidebar } from "./registry.ts";
+import { jobLabel } from "./format.ts";
 import { openBgListPanel } from "./ui.ts";
 
 /** Register all shortcuts. */
@@ -81,5 +82,5 @@ async function handleCtrlX(
     const target = running[0];
     terminateJobSilently(reg, target);
     renderSidebar(reg, ctx);
-    ctx.ui.notify(`Killed ${target.name ?? target.id}`, "info");
+    ctx.ui.notify(`Killed ${jobLabel(target)}`, "info");
 }

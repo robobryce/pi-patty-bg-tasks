@@ -10,7 +10,7 @@
 import type { Job, UiContext } from "./types.ts";
 import { OUTPUT_PREVIEW_CHARS, PREVIEW_CHARS } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
-import { formatDuration } from "./format.ts";
+import { formatDuration, jobLabel } from "./format.ts";
 import { terminateJobSilently } from "./lifecycle.ts";
 import { forget, readLogTail, renderSidebar } from "./registry.ts";
 
@@ -52,7 +52,7 @@ async function showJobActions(
     reg: BackgroundRegistry,
     ctx: UiContext
 ): Promise<boolean> {
-    const name = job.name ?? job.id;
+    const name = jobLabel(job);
 
     if (job.status === "running") {
         const options = ["Show Output", "Kill", "← Back"];
@@ -89,7 +89,7 @@ async function showOutput(job: Job, ctx: UiContext): Promise<void> {
     const dur = formatDuration(Date.now() - job.startTime);
     const exitLine = job.exitCode !== undefined ? `\nExit code: ${job.exitCode}` : "";
     await ctx.ui.editor(
-        `${statusIcon(job)} ${job.name ?? job.id}`,
+        `${statusIcon(job)} ${jobLabel(job)}`,
         `Command: ${job.command}\n` +
         `PID: ${job.pid} · Started: ${new Date(job.startTime).toLocaleString()}\n` +
         `Duration: ${dur} · Status: ${job.status}${exitLine}\n` +

@@ -29,7 +29,7 @@ import {
     renderSidebar,
 } from "../registry.ts";
 import { formatDuration, formatJobLine, jobLabel, textBlock } from "../format.ts";
-import { pollFileTail } from "../output.ts";
+import { streamLog } from "../output.ts";
 import { searchLogs } from "../log-search.ts";
 import {
     ensureCompletionPromise,
@@ -169,7 +169,7 @@ async function killAction(
     renderSidebar(reg, ctx);
     return {
         content: [
-            textBlock(`Sent SIGTERM to ${job.name ?? job.id} (process group)`),
+            textBlock(`Sent SIGTERM to ${jobLabel(job)} (process group)`),
         ],
         details: undefined,
     };
@@ -213,9 +213,7 @@ async function attachAction(
 
         // Stream the live log tail while we wait, so "attach" shows progress
         // instead of sitting silent.
-        const poller = pollFileTail(job.logPath, (text) => {
-            onUpdate?.({ content: [textBlock(text)], details: undefined });
-        });
+        const poller = streamLog(job.logPath, onUpdate);
         let onAbort: (() => void) | undefined;
         try {
             if (signal && !signal.aborted) {

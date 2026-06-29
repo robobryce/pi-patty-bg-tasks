@@ -28,7 +28,7 @@ import {
     type UiContext,
 } from "../types.ts";
 import { spawnWithFileOutput, killProcessTree } from "../spawn.ts";
-import { pollFileTail } from "../output.ts";
+import { streamLog } from "../output.ts";
 import { showBackgroundHint, clearBackgroundHint } from "../hint.ts";
 import {
     add,
@@ -242,9 +242,7 @@ async function runForeground(args: {
 
         // Still running past the quick window — start progress polling and show
         // the "(ctrl+b to run in background)" hint, like Claude Code.
-        progressPoller = pollFileTail(logPath, (text) => {
-            onUpdate?.({ content: [{ type: "text", text }], details: undefined });
-        });
+        progressPoller = streamLog(logPath, onUpdate);
         showBackgroundHint(ctx);
         hintShown = true;
 

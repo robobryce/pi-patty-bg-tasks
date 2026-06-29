@@ -84,3 +84,23 @@ export function pollFileTail(
         },
     };
 }
+
+/** A tool's streaming-update callback (text-only partial results). */
+export type ToolTextUpdate = (update: {
+    content: { type: "text"; text: string }[];
+    details: undefined;
+}) => void;
+
+/**
+ * Stream a log file's live tail into a tool's onUpdate callback — the shared
+ * "show live output while a job runs" mechanic used by bash, agent_bg, and the
+ * jobs attach action. Returns the poller's stop handle.
+ */
+export function streamLog(
+    logPath: string,
+    onUpdate: ToolTextUpdate | undefined
+): { stop: () => void } {
+    return pollFileTail(logPath, (text) => {
+        onUpdate?.({ content: [{ type: "text", text }], details: undefined });
+    });
+}

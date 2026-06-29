@@ -13,7 +13,7 @@ import type { BackgroundRegistry } from "../state.ts";
 import { OUTPUT_PREVIEW_CHARS } from "../types.ts";
 import { findJob, readLogTail, renderSidebar } from "../registry.ts";
 import { terminateJobSilently } from "../lifecycle.ts";
-import { textBlock } from "../format.ts";
+import { jobLabel, textBlock } from "../format.ts";
 
 /** `job_decide` 툴을 등록한다. */
 export function registerJobDecideTool(
@@ -55,7 +55,7 @@ export function registerJobDecideTool(
                     terminateJobSilently(reg, job);
                     renderSidebar(reg, ctx);
                     return {
-                        content: [textBlock(`Killed ${job.name ?? job.id}.`)],
+                        content: [textBlock(`Killed ${jobLabel(job)}.`)],
                         details: undefined,
                     };
                 }
@@ -64,7 +64,7 @@ export function registerJobDecideTool(
                     return {
                         content: [
                             textBlock(
-                                `Keeping ${job.name ?? job.id} running. Use jobs tool to check on it later.`
+                                `Keeping ${jobLabel(job)} running. Use jobs tool to check on it later.`
                             ),
                         ],
                         details: undefined,
@@ -74,7 +74,7 @@ export function registerJobDecideTool(
                     const out = readLogTail(job, OUTPUT_PREVIEW_CHARS);
                     return {
                         content: [
-                            textBlock(`Output of ${job.name ?? job.id}:\n${out}`),
+                            textBlock(`Output of ${jobLabel(job)}:\n${out}`),
                         ],
                         details: undefined,
                     };

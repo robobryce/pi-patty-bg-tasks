@@ -22,7 +22,7 @@ import {
 } from "../lifecycle.ts";
 import { add, nextJobId, logPathFor } from "../registry.ts";
 import { spawnWithFileOutput, type SpawnResult } from "../spawn.ts";
-import { pollFileTail } from "../output.ts";
+import { streamLog } from "../output.ts";
 import { textBlock } from "../format.ts";
 
 /** Resolve the full path to the pi binary, memoised for the session. */
@@ -151,9 +151,7 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
             add(reg, job);
 
             // Progress streaming — surface agent output via onUpdate.
-            const progressPoller = pollFileTail(logPath, (text) => {
-                onUpdate?.({ content: [{ type: "text", text }], details: undefined });
-            });
+            const progressPoller = streamLog(logPath, onUpdate);
             const jobAc = startBackgroundJob({
                 reg, pi, ctx, job, exit: spawned.exit,
                 onExit: () => { try { unlinkSync(promptFile); } catch { /* already gone */ } },
