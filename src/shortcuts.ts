@@ -9,8 +9,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BackgroundRegistry } from "./state.ts";
 import {
-    backgroundActiveForeground,
+    takeControl,
     terminateJobSilently,
+    type ControlContext,
 } from "./lifecycle.ts";
 import { renderSidebar } from "./registry.ts";
 import { jobLabel } from "./format.ts";
@@ -52,17 +53,16 @@ export function registerShortcuts(
 }
 
 /**
- * Ctrl+B / Ctrl+Shift+B handler:
- *   - if a foreground bash is in flight, resolve its pause promise to background
- *     it; the agent keeps working (no pause).
+ * Ctrl+B / Ctrl+Shift+B handler — hand control back to the agent (Claude Code
+ * parity): background the running work and, if a message is queued, interrupt
+ * the turn so it reaches the agent right away. See lifecycle.takeControl.
  */
 async function handleCtrlB(
     reg: BackgroundRegistry,
     pi: ExtensionAPI,
     ctx: Parameters<NonNullable<Parameters<ExtensionAPI["registerShortcut"]>[1]["handler"]>>[0]
 ): Promise<void> {
-    if (backgroundActiveForeground(reg, pi, ctx)) return;
-    ctx.ui.notify("No running process to background.", "warning");
+    takeControl(reg, pi, ctx as ControlContext);
 }
 
 /** Ctrl+Shift+X: kill the most recent running job. */

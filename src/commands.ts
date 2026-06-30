@@ -14,7 +14,7 @@ import type {
     ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 import type { BackgroundRegistry } from "./state.ts";
-import { backgroundActiveForeground } from "./lifecycle.ts";
+import { takeControl, type ControlContext } from "./lifecycle.ts";
 import { openBgListPanel } from "./ui.ts";
 
 const packageJsonPath = fileURLToPath(new URL("../package.json", import.meta.url));
@@ -26,10 +26,9 @@ export function registerCommands(
     reg: BackgroundRegistry
 ): void {
     pi.registerCommand("bg", {
-        description: "Background the current foreground process",
+        description: "Background the current process and hand control to the agent",
         handler: async (_args, ctx) => {
-            if (backgroundActiveForeground(reg, pi, ctx)) return;
-            ctx.ui.notify("No running process to background.", "warning");
+            takeControl(reg, pi, ctx as unknown as ControlContext);
         },
     });
 

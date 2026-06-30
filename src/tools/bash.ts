@@ -155,6 +155,7 @@ async function runForeground(args: {
 
     // Register the foreground slot so Ctrl+Shift+B can find this command.
     let pauseRequested = false;
+    let handedToBackground = false;
     let pauseResolve: ((reason: "manual" | "timeout") => void) | null = null;
     const pausePromise = new Promise<"manual" | "timeout">((r) => {
         pauseResolve = r;
@@ -164,15 +165,36 @@ async function runForeground(args: {
         pauseResolve?.(reason);
     };
 
-    // A turn abort with no pause request is a genuine cancel (e.g. Esc) — kill
-    // the process group. A turn abort after a pause request is cooperative
-    // steering moving the command to the background — leave it running.
+    // Promote the running command to a tracked background job. Forward-declared
+    // so the abort handler (attached before the job exists) can call it; the
+    // real body is assigned right after the job is created.
+    let promoteToBackground: (reason: "manual" | "timeout") => void = () => {};
+
+    // A turn abort must NEVER kill the command. An abort can come from an
+    // implicit/tool timeout or an accidental Esc, and killing would lose
+    // long-running work (e.g. a multi-hour compute). Instead, detach it and keep
+    // it running as a background job — explicit kill (Ctrl+Shift+X / jobs kill)
+    // is the only thing that stops it.
     const onTurnAbort = () => {
-        if (!pauseRequested) killProcessTree(spawned.pid, "SIGTERM");
+        if (pauseRequested) return;
+        pauseRequested = true;
+        promoteToBackground("manual");
+        pauseResolve?.("manual");
+        ctx.ui.notify(
+            "▶ Kept running in the background — your command is safe (jobs to check / kill).",
+            "info"
+        );
     };
     if (signal) {
-        if (signal.aborted) onTurnAbort();
-        else signal.addEventListener("abort", onTurnAbort);
+        if (signal.aborted) {
+            // Already aborted before we even started: mark a pause and let the
+            // completion race background it if it's long-running. Skip the "kept
+            // running" toast here — the command may finish in the quick window
+            // and never actually background.
+            requestPause("manual");
+        } else {
+            signal.addEventListener("abort", onTurnAbort);
+        }
     }
 
     const slot: ForegroundSlot = { requestPause };
@@ -191,6 +213,23 @@ async function runForeground(args: {
     // as "started" until they actually move to the background (see below).
     reg.jobs.set(id, job);
 
+    // Single hand-off to the background, deduped so the abort handler and the
+    // completion race can't double-register the job.
+    promoteToBackground = (reason: "manual" | "timeout") => {
+        if (handedToBackground) return;
+        handedToBackground = true;
+        // Clear the foreground slot now (not only in `finally`) so a survived
+        // command can't strand a stale slot if the turn is torn down on abort.
+        reg.foreground.delete(toolCallId);
+        if (reg.activeToolCallId === toolCallId) reg.activeToolCallId = null;
+        job.isBackgrounded = true;
+        markStarted(reg);
+        startBackgroundJob({ reg, pi, ctx, job, exit: spawned.exit });
+        if (reason === "timeout") {
+            requestJobDecision({ reg, pi, ctx, job, timeoutMs });
+        }
+    };
+
     // Timeout timer.
     const timeoutTimer = setTimeout(() => {
         if (reg.nonInteractive) return;
@@ -204,7 +243,6 @@ async function runForeground(args: {
     (timeoutTimer as NodeJS.Timeout).unref();
 
     let progressPoller: { stop: () => void } | undefined;
-    let handedToBackground = false;
     let hintShown = false;
 
     const cleanup = () => {
@@ -255,16 +293,7 @@ async function runForeground(args: {
         ]);
 
         if (race.kind === "backgrounded") {
-            handedToBackground = true;
-            job.isBackgrounded = true;
-            // Foreground job promoted to background — now count it as started.
-            markStarted(reg);
-            startBackgroundJob({ reg, pi, ctx, job, exit: spawned.exit });
-
-            if (race.reason === "timeout") {
-                requestJobDecision({ reg, pi, ctx, job, timeoutMs });
-            }
-
+            promoteToBackground(race.reason);
             return {
                 content: [
                     textBlock(

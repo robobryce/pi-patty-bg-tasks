@@ -225,13 +225,19 @@ export function terminateJob(job: Job): void {
 
 // --- Foreground backgrounding --------------------------------------------
 
-/** Move the current foreground command to the background and send the agent a follow-up. */
-export function backgroundActiveForeground(
-    reg: BackgroundRegistry,
-    pi: ExtensionAPI,
-    ctx: UiContext,
-    options?: { notifyAgent?: boolean }
-): boolean {
+/** Richer context for Ctrl+B / `/bg`: the UI plus the turn-control surface
+ *  (idle check and whether a user message is already queued). */
+export type ControlContext = UiContext & {
+    isIdle(): boolean;
+    hasPendingMessages(): boolean;
+};
+
+/**
+ * Flip the active foreground command into the background. Pure mechanic — no
+ * toast, no agent message. Returns false when there is nothing in the
+ * foreground to pause. Callers compose the messaging.
+ */
+export function pauseActiveForeground(reg: BackgroundRegistry, ctx: UiContext): boolean {
     if (!reg.activeToolCallId) return false;
     const toolCallId = reg.activeToolCallId;
     const slot = reg.foreground.get(toolCallId);
@@ -241,14 +247,11 @@ export function backgroundActiveForeground(
     reg.foreground.delete(toolCallId);
     if (reg.activeToolCallId === toolCallId) reg.activeToolCallId = null;
     renderSidebar(reg, ctx);
-    ctx.ui.notify("▶ Backgrounded — continuing.", "info");
+    return true;
+}
 
-    // Cooperative steering (input.ts) delivers the user's own message as the
-    // follow-up, so it suppresses this synthetic notice to avoid a duplicate
-    // agent message and an extra turn. Ctrl+Shift+B / /bg have no user text and
-    // keep it.
-    if (options?.notifyAgent === false) return true;
-
+/** Tell the agent a command was backgrounded so it acknowledges and continues. */
+export function sendBackgroundNotice(pi: ExtensionAPI): void {
     pi.sendMessage(
         {
             customType: EVENT.background,
@@ -260,7 +263,59 @@ export function backgroundActiveForeground(
         },
         { deliverAs: "followUp", triggerTurn: true }
     );
+}
+
+/** Move the current foreground command to the background and send the agent a follow-up. */
+export function backgroundActiveForeground(
+    reg: BackgroundRegistry,
+    pi: ExtensionAPI,
+    ctx: UiContext,
+    options?: { notifyAgent?: boolean }
+): boolean {
+    if (!pauseActiveForeground(reg, ctx)) return false;
+    ctx.ui.notify("▶ Backgrounded — continuing.", "info");
+
+    // Cooperative steering (input.ts) delivers the user's own message as the
+    // follow-up, so it suppresses this synthetic notice to avoid a duplicate
+    // agent message and an extra turn. Ctrl+Shift+B / /bg have no user text and
+    // keep it.
+    if (options?.notifyAgent === false) return true;
+    sendBackgroundNotice(pi);
     return true;
+}
+
+/** Outcome of a Ctrl+B / `/bg` control-handover. */
+export type ControlOutcome = "backgrounded" | "queued" | "nothing";
+
+/**
+ * Claude Code's Ctrl+B, faithfully: background the running foreground command.
+ *
+ * It deliberately does NOT call ctx.abort(): in pi, aborting restores any queued
+ * message to the editor (unsent), renders a scary "Operation aborted", AND kills
+ * the running process — exactly the data-loss we must avoid. Instead, like
+ * Claude Code, backgrounding makes the bash tool return; the turn ends and any
+ * queued message drains at the natural turn boundary.
+ */
+export function takeControl(
+    reg: BackgroundRegistry,
+    pi: ExtensionAPI,
+    ctx: ControlContext
+): ControlOutcome {
+    if (pauseActiveForeground(reg, ctx)) {
+        sendBackgroundNotice(pi);
+        ctx.ui.notify("▶ Backgrounded — continuing.", "info");
+        return "backgrounded";
+    }
+
+    // Nothing in the foreground to background. If a message is queued behind the
+    // current turn, set expectations rather than abort (abort would lose it).
+    if (!ctx.isIdle() && ctx.hasPendingMessages()) {
+        ctx.ui.notify("Message queued — it'll send when the current step finishes.", "info");
+        return "queued";
+    }
+
+    ctx.ui.notify("No running process to background.", "warning");
+    return "nothing";
 }
 
 // --- Completion notification ---------------------------------------------
