@@ -17,7 +17,7 @@ import {
     type UiContext,
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
-import { readBoundedTail } from "./output.ts";
+import { readBoundedTail, readLastLine } from "./output.ts";
 
 // --- ID generation -------------------------------------------------------
 
@@ -186,8 +186,11 @@ export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
         runningCount++;
         const duration = formatDuration(Date.now() - job.startTime);
         const glyph = job.kind === "monitor" ? "◉" : "▶";
+        // Show the job's latest output line as live progress; fall back to the
+        // command until there's any output. Re-read each tick by the ticker.
+        const progress = readLastLine(job.logPath) || job.command;
         pills.push(
-            `${glyph} ${jobLabel(job)}: ${job.command.slice(0, PREVIEW_CHARS.sidebar)} (${duration})`
+            `${glyph} ${jobLabel(job)}: ${progress.slice(0, PREVIEW_CHARS.progress)} (${duration})`
         );
     }
 

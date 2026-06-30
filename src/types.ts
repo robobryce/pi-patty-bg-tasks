@@ -43,6 +43,8 @@ export const PREVIEW_CHARS = {
     taskList: 40,
     detail: 50,
     line: 80,
+    /** Live progress line shown in the sidebar pill. */
+    progress: 60,
 } as const;
 
 // --- Domain types ---

@@ -31,6 +31,32 @@ export function readBoundedTail(logPath: string, maxChars: number): string {
     }
 }
 
+// Terminal escape/control sequences stripped from a progress line so the
+// sidebar shows clean text and crafted job output cannot inject escapes. The
+// leading \u001b (ESC) is essential — without it these would eat literal
+// `[...]`/`]...` like JSON.
+const ANSI_CSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+const ANSI_OSC = /\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g;
+// Remaining C0/C1 control chars and DEL (newlines handled by the split).
+const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+
+/**
+ * The last non-empty line of a log's tail, ANSI-stripped — used to show live
+ * progress in the sidebar. Reads only the trailing bytes (cheap per tick), and
+ * collapses `\r` progress-bar redraws to their final segment. Returns "" when
+ * there's no output yet.
+ */
+export function readLastLine(logPath: string, scanBytes = 2_048): string {
+    const tail = readBoundedTail(logPath, scanBytes);
+    if (tail === "(no output yet)") return "";
+    const lines = tail.replace(ANSI_CSI, "").replace(ANSI_OSC, "").split(/[\r\n]+/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].replace(CONTROL_CHARS, "").replace(/\t/g, " ").trim();
+        if (line.length > 0) return line;
+    }
+    return "";
+}
+
 /**
  * Poll a log file tail at `intervalMs` (default 1000ms). Calls `onUpdate`
  * only when content changes. Returns a handle with `stop()`.
