@@ -40,6 +40,7 @@ import {
 import {
     assertJobSlot,
     detectBlockedSleep,
+    SLEEP_WAIT_GUIDANCE,
     isAutoBackgroundAllowed,
     isBlankCommand,
     isSignalExit,
@@ -71,6 +72,7 @@ export function registerBashTool(
         promptGuidelines: [
             "Use bash with run_in_background=true when a command is expected to run for a long time.",
             "run_in_background is for ONE notification (the command exits when done). For per-event streaming (watching logs, polling an API, file changes), use the monitor tool instead.",
+            "Never `sleep N` to wait for something — the job lingers for the full sleep. Wait on a background job with jobs action='attach', watch with the monitor tool, or poll with an `until` loop that exits when ready.",
             "Check background job status with jobs action='list'.",
             "Read background output with jobs action='output'.",
         ],
@@ -90,9 +92,7 @@ export function registerBashTool(
 
             const sleepMatch = detectBlockedSleep(p.command);
             if (sleepMatch) {
-                throw new Error(
-                    `Blocked: ${sleepMatch}. Use bash with run_in_background=true for long waits.`
-                );
+                throw new Error(`Blocked: ${sleepMatch}. ${SLEEP_WAIT_GUIDANCE}`);
             }
 
             assertJobSlot(reg);

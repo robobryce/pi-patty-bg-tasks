@@ -399,20 +399,64 @@ export function isAutoBackgroundAllowed(command: string): boolean {
 }
 
 /**
- * Reject sleeps of 2 seconds or more. A foreground sleep blocks the user's
- * interactive flow, so long waits must use run_in_background / bash_bg.
+ * Actionable guidance shown when a naive `sleep N` wait is blocked. A fixed
+ * sleep both wastes time and leaves a lingering background job; every bullet
+ * points at a tool that ends as soon as the real work does.
+ */
+export const SLEEP_WAIT_GUIDANCE =
+    "A fixed `sleep N` to wait wastes time and leaves a job lingering for the " +
+    "full duration. Instead:\n" +
+    "• Waiting on a background job you started? Use jobs action='attach' — it " +
+    "returns as soon as that job finishes.\n" +
+    "• Waiting for a condition? Use the monitor tool, or a poll loop that EXITS " +
+    "when ready (e.g. `until grep -q READY log; do sleep 0.5; done`).\n" +
+    "• Just pacing/rate-limiting? Keep it under 2 seconds.";
+
+/** A bare `sleep N[unit]` that counts as a wait (>= 2s). Float durations
+ *  (`sleep 0.5`) and sub-2s integer sleeps are deliberate pacing — allowed. */
+function detectSleepClause(segment: string): string | null {
+    // Allow a trailing `&` — a backgrounded `sleep 600 &` is itself a lingering job.
+    const m = /^sleep\s+(\d+)([smhd]?)\s*&?\s*$/.exec(segment);
+    if (!m) return null;
+    const unit = m[2] || "s";
+    if (unit === "s" && parseInt(m[1], 10) < 2) return null;
+    return `sleep ${m[1]}${m[2]}`;
+}
+
+/**
+ * Detect a `sleep N` used as a naive wait — `sleep 600`, `cd x; sleep 600;
+ * check`, `build && sleep 5 && test`, `sleep 5m`. Catches it as a top-level
+ * step in a flat command sequence (split on top-level `;`, `&&`, `||`).
+ *
+ * Deliberately conservative around control flow: a `sleep` inside a while/until/
+ * for loop is the *correct* polling pattern, and subshells / command
+ * substitution make flat splitting unsafe — there we check only the leading
+ * command, so a legitimate `until ready; do sleep 1; done` is never flagged.
+ *
+ * Returns the offending `sleep` clause, or null.
  */
 export function detectBlockedSleep(command: string): string | null {
-    const first =
-        command
-            .trim()
-            .split(/&&|;|\|/)[0]
-            ?.trim() ?? "";
-    const m = /^sleep\s+(\d+(?:\.\d+)?)\s*$/.exec(first);
-    if (!m) return null;
-    const secs = parseFloat(m[1]);
-    if (secs < 2) return null;
-    return first;
+    const trimmed = command.trim();
+    // Only an actual loop body can leave a bare `sleep N` segment after a flat
+    // split (`do work; sleep 5; done`); an if/case block keeps its `then`/`)`
+    // prefix on the sleep, so those don't need special handling. We detect the
+    // structural loop pairing (not loose keywords, so `echo done` is fine) and
+    // grouping/command-substitution, and fall back to the leading command there.
+    const unsafeToSplit =
+        /\b(while|until|for)\b[\s\S]*?\bdo\b/.test(trimmed) ||
+        /\bdo\b[\s\S]*?\bdone\b/.test(trimmed) ||
+        /[(){}`]|\$\(/.test(trimmed);
+    // Newline is bash's primary command separator, alongside ; && || — split on
+    // all of them so `start-server\nsleep 5\ncurl` is caught like `…; sleep 5; …`.
+    const SEPARATORS = /&&|\|\||;|\n/;
+    const segments = unsafeToSplit
+        ? [trimmed.split(SEPARATORS)[0] ?? ""]
+        : trimmed.split(SEPARATORS);
+    for (const segment of segments) {
+        const clause = detectSleepClause(segment.trim());
+        if (clause) return clause;
+    }
+    return null;
 }
 
 // --- Rehydration (session restore) ---------------------------------------
