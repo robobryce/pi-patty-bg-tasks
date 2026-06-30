@@ -210,6 +210,12 @@ A live pill widget keeps your running jobs in view — each with its duration an
 
 ## Releases
 
+### 1.1.1 — Parity fixes, no-data-loss, live progress
+
+- **Live progress in the sidebar.** A running job's pill now shows its **latest output line** (refreshed every second), not just the command — so a long poll/build shows progress at a glance (`◉ qdrant: {"indexed":8540629,"status":"grey"} (2m10s)`). ANSI/control sequences are stripped so the widget stays clean and can't be escape-injected.
+- **No more lingering `sleep` jobs.** A naive `sleep N` wait (even embedded — `cd x; sleep 600; check`, newline-separated, or backgrounded) is now blocked in both `bash` and `bash_bg`, with steering to the tool that ends when the work does: `jobs attach`, the `monitor` tool, or an `until` loop. Sleeps inside real polling loops are never flagged.
+- **Claude Code parity on cancel (verified against CC source).** Pressing **Esc** kills the running foreground command (a deliberate cancel), while typing a new message, **Ctrl+B**, or the auto-background timeout move it to the background instead — exactly CC's `user-cancel` vs `interrupt` behavior. Long work is protected by auto-backgrounding at the timeout + `run_in_background`, not by ignoring a cancel.
+
 ### 1.1.0 — Monitor tool & coalesced completions
 
 - **New `monitor` tool** — the streaming half of Claude Code's split: each stdout line (or WebSocket frame) becomes one notification as it happens. Use it for per-event streams (`tail -f | grep`, poll loops, file watches, ws feeds), while `run_in_background` keeps the one-shot "wait until done" case. Supports `command`/`ws` sources, `persistent` watches, a `timeout_ms` deadline, line-accurate following, and auto-stop on a firehose. Shows with a `◉` pill in the sidebar and `jobs` manager.
