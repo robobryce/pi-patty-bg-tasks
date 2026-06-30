@@ -10,9 +10,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { BackgroundRegistry } from "../state.ts";
-import { type Job, type UiContext } from "../types.ts";
+import { type UiContext } from "../types.ts";
 import { spawnWithFileOutput } from "../spawn.ts";
-import { add, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
+import { add, createRunningJob, nextJobId, logPathFor, renderSidebar } from "../registry.ts";
 import {
     assertJobSlot, isAutoBackgroundAllowed, isBlankCommand,
     requestJobDecision, requireExistingCwd, startBackgroundJob,
@@ -32,6 +32,7 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
         promptSnippet: "Start long-running commands directly in the background",
         promptGuidelines: [
             "Use bash_bg when a command should definitely start in the background.",
+            "bash_bg gives ONE completion notification. For a per-event stream (tail -f | grep, poll loop, file watch, WebSocket feed), use the monitor tool instead.",
             "Give the job a name when it will be easier to track in jobs list.",
         ],
         parameters: Type.Object({
@@ -54,11 +55,10 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
                 command: p.command, cwd: ctx2.cwd, logPath,
             });
 
-            const job: Job = {
+            const job = createRunningJob({
                 id, name: p.name, command: p.command, pid: spawned.pid,
-                startTime: Date.now(), status: "running", logPath,
-                toolCallId, isBackgrounded: true,
-            };
+                logPath, toolCallId,
+            });
             add(reg, job);
             const jobAc = startBackgroundJob({
                 reg, pi, ctx: ctx2, job, exit: spawned.exit,

@@ -28,4 +28,10 @@ export class BackgroundRegistry {
     sidebarTimer: NodeJS.Timeout | undefined = undefined;
     /** Last rendered sidebar content — used to skip redundant widget updates. */
     lastSidebarContent: string | undefined = undefined;
+
+    /** Finished jobs awaiting a coalesced completion notice (see notify.ts).
+     *  Buffered so a burst of completions surfaces as one summary, not a wall. */
+    pendingFinished: Job[] = [];
+    /** Open coalescing window for pendingFinished; one flush per window. */
+    finishedFlushTimer: NodeJS.Timeout | undefined = undefined;
 }

@@ -13,6 +13,7 @@ import {
     PREVIEW_CHARS,
     RECENT_TERMINAL_KEEP,
     type Job,
+    type JobKind,
     type UiContext,
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
@@ -30,6 +31,41 @@ export const LOG_DIR = "/tmp/pi-bg";
 
 export function logPathFor(jobId: string): string {
     return `${LOG_DIR}/${jobId}.log`;
+}
+
+/** Sibling stderr-capture path for a monitor's split output. Keeps the
+ *  `.log`/`.err` naming convention in one place. */
+export function errPathFor(jobId: string): string {
+    return `${LOG_DIR}/${jobId}.err`;
+}
+
+/**
+ * Build a fresh running Job. Centralizes the Job shape so the new `kind`/`stop`
+ * fields (and any future additions) don't drift across the bash/bash_bg/
+ * agent_bg/monitor construction sites.
+ */
+export function createRunningJob(args: {
+    id: string;
+    command: string;
+    pid: number;
+    logPath: string;
+    toolCallId: string;
+    name?: string;
+    kind?: JobKind;
+    isBackgrounded?: boolean;
+}): Job {
+    return {
+        id: args.id,
+        name: args.name,
+        command: args.command,
+        pid: args.pid,
+        startTime: Date.now(),
+        status: "running",
+        logPath: args.logPath,
+        toolCallId: args.toolCallId,
+        isBackgrounded: args.isBackgrounded ?? true,
+        kind: args.kind,
+    };
 }
 
 // --- Registry mutations --------------------------------------------------
@@ -149,8 +185,9 @@ export function renderSidebar(reg: BackgroundRegistry, ctx: UiContext): void {
         if (job.status !== "running") continue;
         runningCount++;
         const duration = formatDuration(Date.now() - job.startTime);
+        const glyph = job.kind === "monitor" ? "◉" : "▶";
         pills.push(
-            `▶ ${jobLabel(job)}: ${job.command.slice(0, PREVIEW_CHARS.sidebar)} (${duration})`
+            `${glyph} ${jobLabel(job)}: ${job.command.slice(0, PREVIEW_CHARS.sidebar)} (${duration})`
         );
     }
 

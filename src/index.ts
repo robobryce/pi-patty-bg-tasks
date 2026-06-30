@@ -1,12 +1,13 @@
 /**
  * pi-patty-bg-tasks — background task extension for the pi agent.
  *
- * Registers five tools:
+ * Registers six tools:
  *   - bash (override)
  *   - bash_bg
  *   - jobs
  *   - job_decide
  *   - agent_bg
+ *   - monitor (streaming-event watch)
  *
  * Also registers keyboard shortcuts and slash commands.
  */
@@ -21,6 +22,7 @@ import {
     terminateJobSilently,
 } from "./lifecycle.ts";
 import { forget as forgetJob, stopSidebarTicker } from "./registry.ts";
+import { cancelFinishedFlush } from "./notify.ts";
 import {
     EVENT,
     PERSISTED_STATE_SCHEMA_VERSION,
@@ -31,6 +33,7 @@ import { registerBashBgTool } from "./tools/bash-bg.ts";
 import { registerJobsTool } from "./tools/jobs.ts";
 import { registerJobDecideTool } from "./tools/job-decide.ts";
 import { registerAgentBgTool } from "./tools/agent-bg.ts";
+import { registerMonitorTool } from "./tools/monitor.ts";
 import { registerShortcuts } from "./shortcuts.ts";
 import { registerCommands } from "./commands.ts";
 import { registerInputHandlers } from "./input.ts";
@@ -55,6 +58,7 @@ export default function (pi: ExtensionAPI): void {
     registerJobsTool(pi, reg);
     registerJobDecideTool(pi, reg);
     registerAgentBgTool(pi, reg);
+    registerMonitorTool(pi, reg);
 
     // ── Shortcuts / commands ──────────────────────────────────────
     registerShortcuts(pi, reg);
@@ -109,6 +113,8 @@ export default function (pi: ExtensionAPI): void {
     pi.on("session_shutdown", async (event, _ctx) => {
         // Stop the live-duration ticker so the interval doesn't outlive the session.
         stopSidebarTicker(reg);
+        // Drop any open completion-coalescing window (its notice would never render).
+        cancelFinishedFlush(reg);
 
         // On quit, kill all running background jobs to avoid orphans.
         if (event.reason === "quit") {
@@ -128,6 +134,7 @@ export default function (pi: ExtensionAPI): void {
                     proc: undefined,
                     donePromise: undefined,
                     resolveDone: undefined,
+                    stop: undefined,
                 },
             ]),
             jobCounter: reg.counter,

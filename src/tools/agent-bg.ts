@@ -13,14 +13,13 @@ import { tmpdir } from "node:os";
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { BackgroundRegistry } from "../state.ts";
-import { type Job } from "../types.ts";
 import {
     assertJobSlot,
     isBlankCommand,
     requireExistingCwd as requireCwd,
     startBackgroundJob,
 } from "../lifecycle.ts";
-import { add, nextJobId, logPathFor } from "../registry.ts";
+import { add, createRunningJob, nextJobId, logPathFor } from "../registry.ts";
 import { spawnWithFileOutput, type SpawnResult } from "../spawn.ts";
 import { streamLog } from "../output.ts";
 import { textBlock } from "../format.ts";
@@ -143,11 +142,10 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
                 throw err;
             }
 
-            const job: Job = {
+            const job = createRunningJob({
                 id, command: `pi -p (background agent)`, pid: spawned.pid,
-                startTime: Date.now(), status: "running", logPath,
-                toolCallId, isBackgrounded: true,
-            };
+                logPath, toolCallId,
+            });
             add(reg, job);
 
             // Progress streaming — surface agent output via onUpdate.

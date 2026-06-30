@@ -24,10 +24,21 @@ export function spawnWithFileOutput(args: {
     fileArgs?: string[];
     cwd: string;
     logPath: string;
+    /** When set, stderr is written here instead of merged into logPath. Used by
+     *  the monitor tool so stdout is a clean event stream and stderr is captured
+     *  separately (readable, but never emitted as an event). */
+    errPath?: string;
     signal?: AbortSignal;
 }): SpawnResult {
     mkdirSync(dirname(args.logPath), { recursive: true });
-    const logFd = openSync(args.logPath, "w");
+    const outFd = openSync(args.logPath, "w");
+    let errFd: number;
+    try {
+        errFd = args.errPath ? openSync(args.errPath, "w") : outFd;
+    } catch (err) {
+        closeSync(outFd);
+        throw err;
+    }
 
     const [bin, binArgs]: [string, string[]] = args.file
         ? [args.file, args.fileArgs ?? []]
@@ -36,13 +47,14 @@ export function spawnWithFileOutput(args: {
     let proc;
     try {
         proc = spawn(bin, binArgs, {
-            stdio: ["ignore", logFd, logFd],
+            stdio: ["ignore", outFd, errFd],
             cwd: args.cwd,
             detached: true,
             env: { ...process.env },
         });
     } finally {
-        closeSync(logFd);
+        closeSync(outFd);
+        if (errFd !== outFd) closeSync(errFd);
     }
 
     // Build the exit promise and attach the 'error' listener BEFORE any throw,
@@ -55,6 +67,9 @@ export function spawnWithFileOutput(args: {
 
     if (!proc.pid) {
         try { unlinkSync(args.logPath); } catch { /* best-effort */ }
+        if (args.errPath) {
+            try { unlinkSync(args.errPath); } catch { /* best-effort */ }
+        }
         throw new Error("Failed to spawn process");
     }
     const pid = proc.pid;

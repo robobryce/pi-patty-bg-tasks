@@ -33,6 +33,10 @@ export function watchStalls(args: {
     logPath: string;
     pi: ExtensionAPI;
     onOversize?: () => void;
+    /** Skip the interactive-prompt stall heuristic (used for monitors). */
+    disablePromptStall?: boolean;
+    /** Skip the oversize auto-kill (used for persistent monitors). */
+    disableOversizeKill?: boolean;
 }): () => void {
     let lastSize = 0;
     let lastGrowth = Date.now();
@@ -44,7 +48,7 @@ export function watchStalls(args: {
         try {
             const { size } = fsStatSync(args.logPath);
 
-            if (size > MAX_LOG_BYTES) {
+            if (size > MAX_LOG_BYTES && !args.disableOversizeKill) {
                 cancelled = true;
                 if (args.onOversize) args.onOversize();
                 args.pi.sendMessage(
@@ -63,6 +67,7 @@ export function watchStalls(args: {
                 lastSize = size;
                 lastGrowth = Date.now();
             } else if (
+                !args.disablePromptStall &&
                 Date.now() - lastGrowth >= STALL_THRESHOLD_MS &&
                 size !== lastPromptCheckSize
             ) {

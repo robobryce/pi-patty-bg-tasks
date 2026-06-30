@@ -23,6 +23,7 @@ export function statusLabel(job: Job, duration?: string): string {
     const dur = duration ?? formatDuration(Date.now() - job.startTime);
     switch (job.status) {
         case "running":
+            if (job.kind === "monitor") return `◉ monitor (${dur})`;
             return job.isBackgrounded ? `▶ bg (${dur})` : `▶ fg (${dur})`;
         case "completed":
             return "✓ completed";

@@ -167,9 +167,14 @@ async function killAction(
     }
     terminateJobSilently(reg, job);
     renderSidebar(reg, ctx);
+    const isWsMonitor = job.kind === "monitor" && job.pid <= 0;
     return {
         content: [
-            textBlock(`Sent SIGTERM to ${jobLabel(job)} (process group)`),
+            textBlock(
+                isWsMonitor
+                    ? `Closed monitor ${jobLabel(job)}`
+                    : `Sent SIGTERM to ${jobLabel(job)} (process group)`
+            ),
         ],
         details: undefined,
     };

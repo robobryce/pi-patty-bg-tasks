@@ -18,6 +18,25 @@ export const MAX_LOG_BYTES = 100 * 1024 * 1024;
 export const OUTPUT_PREVIEW_CHARS = 12_000;
 export const RECENT_TERMINAL_KEEP = 20;
 export const MAX_CONCURRENT_JOBS = 16;
+/** Coalescing window for background-job completion notices. Completions within
+ *  this window collapse into one summary message instead of one line each, so a
+ *  burst of finished jobs doesn't dump a wall of `[job-finished]` lines. Kept
+ *  sub-second so a lone job's notice isn't perceptibly delayed; jobs launched
+ *  together still finish within tens of ms of each other and coalesce. */
+export const JOB_FINISH_COALESCE_MS = 400;
+
+// --- Monitor (streaming-event) constants ---
+/** Poll cadence for the line-accurate follower. Lines read within one tick are
+ *  batched into a single event — so this doubles as the ~200ms batch window. */
+export const MONITOR_POLL_MS = 200;
+/** Default streaming watch deadline (matches Claude Code's Monitor). */
+export const MONITOR_DEFAULT_TIMEOUT_MS = 300_000;
+/** Hard ceiling on a monitor's deadline. */
+export const MONITOR_MAX_TIMEOUT_MS = 3_600_000;
+/** Sliding window for firehose detection. */
+export const MONITOR_RATE_WINDOW_MS = 10_000;
+/** Max emitted lines per window before a monitor is auto-stopped. */
+export const MONITOR_MAX_LINES_PER_WINDOW = 500;
 
 export const PREVIEW_CHARS = {
     sidebar: 25,
@@ -28,6 +47,10 @@ export const PREVIEW_CHARS = {
 
 // --- Domain types ---
 export type JobStatus = "running" | "completed" | "failed" | "killed";
+
+/** What kind of background job this is. "shell" is the default (bash/bash_bg/
+ *  agent_bg); "monitor" is a streaming-event watch (the monitor tool). */
+export type JobKind = "shell" | "monitor";
 
 export interface Job {
     id: string;
@@ -44,6 +67,13 @@ export interface Job {
     resolveDone?: () => void;
     outputConsumed?: boolean;
     isBackgrounded: boolean;
+    /** Defaults to "shell" when absent (back-compat with persisted jobs). */
+    kind?: JobKind;
+    /** Transient teardown hook (follower + ws socket). Never persisted. */
+    stop?: () => void;
+    /** Wall-clock finish time, stamped when queued for a completion notice so a
+     *  coalesced notice reports the true duration, not the flush time. */
+    endedAt?: number;
 }
 
 export type BackgroundReason = "manual" | "timeout";
@@ -64,6 +94,7 @@ export const EVENT = {
     background: "bg-manual",
     agentResume: "agent-resume",
     jobFinished: "job-finished",
+    monitorEvent: "bg-monitor-event",
 } as const;
 
 export type EventName = (typeof EVENT)[keyof typeof EVENT];

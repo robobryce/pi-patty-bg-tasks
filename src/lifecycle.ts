@@ -21,6 +21,7 @@ import type { BackgroundRegistry } from "./state.ts";
 import { killProcessTree, processExists } from "./spawn.ts";
 import { LOG_DIR, atConcurrencyLimit, forget, renderSidebar } from "./registry.ts";
 import { watchStalls } from "./monitoring.ts";
+import { enqueueFinished } from "./notify.ts";
 import { formatDuration, jobLabel } from "./format.ts";
 
 // --- Background-job orchestration ----------------------------------------
@@ -48,6 +49,12 @@ export function startBackgroundJob(args: {
     job: Job;
     exit: Promise<number | null>;
     shouldNotify?: boolean;
+    /** Suppress the interactive-prompt stall heuristic (monitors stream their
+     *  own output, so a quiet tail is normal, not a stuck prompt). */
+    disablePromptStall?: boolean;
+    /** Suppress the oversize auto-kill (persistent log tails are expected to
+     *  grow without bound). */
+    disableOversizeKill?: boolean;
     onExit?: (code: number | null) => void;
 }): AbortController {
     ensureCompletionPromise(args.job);
@@ -57,6 +64,8 @@ export function startBackgroundJob(args: {
         command: args.job.command,
         logPath: args.job.logPath,
         pi: args.pi,
+        disablePromptStall: args.disablePromptStall,
+        disableOversizeKill: args.disableOversizeKill,
         onOversize: () => terminateJobSilently(args.reg, args.job),
     });
     jobAc.signal.addEventListener("abort", cancelStall, { once: true });
@@ -201,6 +210,10 @@ export function abortJob(reg: BackgroundRegistry, jobId: string): void {
  * no proc handle after session restore).
  */
 export function terminateJob(job: Job): void {
+    // Monitors carry a transient teardown hook (follower + ws socket). A ws
+    // monitor has pid 0, so the process-tree kill below is a no-op for it and
+    // job.stop does the real work; a command monitor needs both.
+    job.stop?.();
     if (job.proc && processExists(job.proc.pid)) {
         killProcessTree(job.proc.pid, "SIGTERM");
         return;
@@ -256,6 +269,9 @@ export function backgroundActiveForeground(
  * Notify the agent that a job finished. When outputConsumed is true (e.g. a
  * jobs attach already consumed the output) no notification is sent and the job
  * is only cleaned up. The caller calls registry.forget() right after.
+ *
+ * Completions are coalesced (see notify.ts): a lone finish reads like a single
+ * line, but a burst collapses into one summary instead of a wall of notices.
  */
 export function notifyFinished(args: {
     job: Job;
@@ -263,44 +279,7 @@ export function notifyFinished(args: {
     pi: ExtensionAPI;
     ctx: UiContext;
 }): void {
-    const { job, pi, ctx } = args;
-    if (job.outputConsumed) {
-        // Output already consumed — clean up without notifying.
-        // registry.forget is handled by the caller.
-        return;
-    }
-
-    const duration = formatDuration(Date.now() - job.startTime);
-    const label = job.name ? `"${job.name}"` : `"${job.command.slice(0, 60)}"`;
-    const exitText =
-        job.exitCode !== undefined && job.exitCode !== 0
-            ? ` (exit ${job.exitCode})`
-            : "";
-    const statusText =
-        job.status === "completed"
-            ? `Background bash ${label} completed in ${duration}`
-            : `Background bash ${label} ${job.status} in ${duration}${exitText}`;
-
-    ctx.ui.notify(statusText, job.status === "completed" ? "info" : "error");
-
-    // Keep the agent in the loop (Claude Code parity) but compact: a single
-    // line delivered as a non-triggering follow-up, not a boxed block.
-    pi.sendMessage(
-        {
-            customType: EVENT.jobFinished,
-            content: `${statusText} · ${job.id} · output: ${job.logPath}`,
-            display: true,
-            details: {
-                jobId: job.id,
-                status: job.status,
-                exitCode: job.exitCode,
-                duration,
-                command: job.command,
-                logPath: job.logPath,
-            },
-        },
-        { deliverAs: "followUp", triggerTurn: false }
-    );
+    enqueueFinished(args.reg, args.pi, args.ctx, args.job);
 }
 
 /**
@@ -392,6 +371,15 @@ export function reviveAndValidate(
     job: Job
 ): "alive" | "completed" {
     if (job.status !== "running") return "completed";
+    // A ws monitor (pid 0) has no process to revive — its socket cannot survive
+    // a restart — so it is always terminal. A command monitor falls through to
+    // the generic pid-liveness check below: if its child is still alive in this
+    // process it stays "running" (killable/inspectable via jobs, though its
+    // follower is gone); otherwise it is marked terminal like any dead job.
+    if (job.kind === "monitor" && job.pid <= 0) {
+        markTerminal(job, "failed");
+        return "completed";
+    }
     // A job spawned by a *different* pi process (a full restart, not a /reload)
     // cannot be safely managed — the OS may have recycled its PID, and signalling
     // it would hit an unrelated process group. Only revive jobs from the current
