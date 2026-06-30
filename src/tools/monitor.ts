@@ -10,32 +10,19 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { BackgroundRegistry } from "../state.ts";
 import {
-    EVENT,
     MONITOR_DEFAULT_TIMEOUT_MS,
-    MONITOR_MAX_LINES_PER_WINDOW,
     MONITOR_MAX_TIMEOUT_MS,
-    MONITOR_RATE_WINDOW_MS,
     type UiContext,
 } from "../types.ts";
-import { spawnWithFileOutput } from "../spawn.ts";
+import { add, createRunningJob, errPathFor, nextJobId, logPathFor } from "../registry.ts";
+import { assertJobSlot, isBlankCommand, requireExistingCwd } from "../lifecycle.ts";
+import { isWsSupported, type WsSpec } from "../monitor-ws.ts";
 import {
-    add,
-    createRunningJob,
-    errPathFor,
-    nextJobId,
-    logPathFor,
-    renderSidebar,
-} from "../registry.ts";
-import {
-    assertJobSlot,
-    isBlankCommand,
-    isSignalExit,
-    requireExistingCwd,
-    startBackgroundJob,
-    terminateJobSilently,
-} from "../lifecycle.ts";
-import { followLines, type MonitorFollower } from "../monitor-follow.ts";
-import { isWsSupported, openWsSource, type WsSpec } from "../monitor-ws.ts";
+    openWsMonitorSource,
+    spawnCommandSource,
+    type MonitorSource,
+} from "../monitor-source.ts";
+import { startMonitorSession } from "../monitor-session.ts";
 import { textBlock } from "../format.ts";
 
 type MonitorCtx = UiContext & { cwd: string };
@@ -126,148 +113,37 @@ export function registerMonitorTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
             const id = nextJobId(reg);
             const logPath = logPathFor(id);
 
-            // --- Start the source -----------------------------------------
-            let exit: Promise<number | null>;
-            let pid = 0;
-            let wsClose: (() => void) | undefined;
-            let commandLabel: string;
-
-            if (hasWs) {
-                const source = openWsSource(p.ws!, logPath);
-                exit = source.exit;
-                wsClose = source.close;
-                commandLabel = `ws ${p.ws!.url}`;
-            } else {
-                const spawned = spawnWithFileOutput({
-                    command: p.command!,
-                    cwd: mctx.cwd,
-                    logPath,
-                    errPath: errPathFor(id),
-                });
-                exit = spawned.exit;
-                pid = spawned.pid;
-                commandLabel = p.command!;
-            }
+            // Build the event source (command or ws) behind one seam, then hand
+            // it to the session, which owns the streaming/terminal lifecycle.
+            const source: MonitorSource = hasWs
+                ? openWsMonitorSource(p.ws!, logPath)
+                : spawnCommandSource({
+                      command: p.command!,
+                      cwd: mctx.cwd,
+                      logPath,
+                      errPath: errPathFor(id),
+                  });
 
             const job = createRunningJob({
                 id,
-                command: commandLabel,
-                pid,
+                command: source.label,
+                pid: source.pid,
                 logPath,
                 toolCallId: _toolCallId,
                 kind: "monitor",
             });
             add(reg, job);
 
-            // --- Event emission + rate limiting ---------------------------
-            let terminalEmitted = false;
-            let finishing = false;
-            let windowStart = Date.now();
-            let windowLines = 0;
-
-            // Single envelope for every monitor notification (stream events and
-            // the terminal summary) so the shape stays in one place.
-            const sendMonitorMessage = (content: string, terminal: boolean): void => {
-                pi.sendMessage(
-                    {
-                        customType: EVENT.monitorEvent,
-                        content,
-                        display: true,
-                        details: { jobId: id, description, logPath, terminal },
-                    },
-                    { deliverAs: "followUp", triggerTurn: true }
-                );
-            };
-
-            const emitEvent = (lines: string[]): void => {
-                if (lines.length === 0) return;
-                sendMonitorMessage(`◉ ${description}\n${lines.join("\n")}`, false);
-            };
-
-            const follower: MonitorFollower = followLines(logPath, (lines) => {
-                if (terminalEmitted) return;
-
-                // Sliding-window firehose check.
-                const now = Date.now();
-                if (now - windowStart > MONITOR_RATE_WINDOW_MS) {
-                    windowStart = now;
-                    windowLines = 0;
-                }
-                windowLines += lines.length;
-
-                emitEvent(lines);
-
-                // Don't trip the firehose guard while draining the final flush.
-                if (!finishing && windowLines > MONITOR_MAX_LINES_PER_WINDOW) {
-                    stopMonitor(`stopped: too many events (>${MONITOR_MAX_LINES_PER_WINDOW}/${MONITOR_RATE_WINDOW_MS / 1000}s) — restart with a tighter filter`);
-                }
-            });
-
-            // job.stop: transient teardown invoked by the kill path. Closes the
-            // ws socket only — the follower is stopped *and flushed* by
-            // finishMonitor on the exit path (kill → process/socket close →
-            // exit → onExit), so a user-initiated kill stays lossless.
-            job.stop = () => {
-                wsClose?.();
-            };
-
-            const finishMonitor = (summary: string): void => {
-                if (terminalEmitted) return;
-                // Flush remaining lines first (while terminalEmitted is still
-                // false so the follower callback emits them), then the summary.
-                finishing = true;
-                follower.stop(true);
-                terminalEmitted = true;
-                sendMonitorMessage(`◉ ${description} — ${summary}`, true);
-            };
-
-            /** Forced stop (timeout / firehose). Emits a terminal event, then
-             *  routes through the standard silent-kill path (which calls job.stop). */
-            function stopMonitor(summary: string): void {
-                finishMonitor(summary);
-                terminateJobSilently(reg, job);
-                renderSidebar(reg, mctx);
-            }
-
-            // Wire exit → terminal event. shouldNotify:false because the monitor
-            // owns its own terminal event (no jobFinished double-fire).
-            // Monitors stream their own output, so the prompt-stall heuristic is
-            // nonsensical here; the oversize cap is also suppressed for
-            // persistent watches (session-length log tails are expected to grow).
-            const jobAc = startBackgroundJob({
-                reg,
+            startMonitorSession({
                 pi,
+                reg,
                 ctx: mctx,
                 job,
-                exit,
-                shouldNotify: false,
-                disablePromptStall: true,
-                disableOversizeKill: persistent,
-                onExit: (code) => {
-                    let summary: string;
-                    if (job.status === "killed" || isSignalExit(code)) {
-                        summary = "stopped";
-                    } else if (code === 0 || code === null) {
-                        summary = "stream ended";
-                    } else {
-                        summary = `script failed (exit ${code})`;
-                    }
-                    finishMonitor(summary);
-                },
+                source,
+                description,
+                persistent,
+                timeoutMs,
             });
-
-            // Deadline (skipped for persistent watches). Cleared when the job
-            // aborts (natural exit or kill) so a short monitor doesn't keep a
-            // live timer + closure alive for the whole timeout window.
-            if (!persistent) {
-                const deadline = setTimeout(() => {
-                    stopMonitor(`stopped (timeout after ${Math.round(timeoutMs / 1000)}s)`);
-                }, timeoutMs);
-                (deadline as NodeJS.Timeout).unref();
-                jobAc.signal.addEventListener("abort", () => clearTimeout(deadline), {
-                    once: true,
-                });
-            }
 
             const sourceDesc = hasWs ? `WebSocket ${p.ws!.url}` : "command";
             const deadlineDesc = persistent

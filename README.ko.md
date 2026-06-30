@@ -119,6 +119,33 @@ agent_bg({ prompt: "auth 모듈 리팩터링" })
 | `prompt` | 백그라운드 에이전트에게 맡길 작업 설명 |
 | `cwd` | 작업 디렉터리 (기본값: 현재) |
 
+### monitor
+
+한 번 기다리는 대신 이벤트를 스트리밍합니다. `bash_bg`/`run_in_background`가 완료 시 **한 번** 알려준다면, `monitor`는 프로세스를 **실시간 이벤트 스트림**으로 바꿉니다 — stdout 한 줄(또는 WebSocket 프레임)마다 알림 하나가 에이전트의 턴으로 바로 전달되고, 에이전트는 그동안 계속 일합니다. 이것이 Claude Code가 둘로 나눈 스트리밍 절반입니다: 일회성 "끝나면 알려줘"는 `run_in_background`가, 이벤트마다 "X가 일어날 때마다 알려줘"는 `monitor`가 맡습니다.
+
+```js
+// 모든 에러 줄을 무기한 알림
+monitor({ command: "tail -f deploy.log | grep --line-buffered -E 'ERROR|Traceback'", description: "deploy.log 에러" })
+
+// CI 체크가 들어올 때마다 내보내고, 실행이 끝나면 종료
+monitor({ command: "…종료되는 폴링 루프…", description: "PR 123 CI 체크" })
+
+// WebSocket 피드 구독 — 각 텍스트 프레임이 이벤트
+monitor({ ws: { url: "wss://events.example.com/stream" }, description: "배포 이벤트", persistent: true })
+```
+
+| 파라미터 | 설명 |
+|---------|------|
+| `command` | 셸 스크립트. stdout 한 줄이 이벤트 하나. `ws`와 상호 배타적. |
+| `ws` | WebSocket 소스 `{ url, protocols? }`. 텍스트 프레임 하나가 이벤트 하나. `command`와 상호 배타적. |
+| `description` | 모든 알림에 표시됨(구체적으로). **필수.** |
+| `persistent` | 세션 전체 동안 실행(타임아웃 없음). `jobs action='kill'`로 중지. 기본값 `false`. |
+| `timeout_ms` | 워치를 종료할 데드라인(기본 `300000`, 최대 `3600000`). `persistent`면 무시. |
+
+모니터는 백그라운드 도구와 같은 잡 레지스트리·사이드바(`◉` 표시)·`jobs` 매니저를 공유합니다 — stdout만 이벤트 스트림이고(stderr는 별도 `.err` 파일에 캡처), 출력은 줄 단위 버퍼링이므로 `grep --line-buffered`/`awk fflush()`를 쓰고 `head`는 절대 쓰지 마세요. 이벤트를 쏟아내는 모니터는 자동으로 중지되니 더 좁은 필터로 다시 시작하면 됩니다. `ws` 소스는 전역 `WebSocket`(Node 22+)이 있는 런타임이 필요하며, 없으면 `websocat` 같은 `command`를 쓰세요.
+
+> **지속 모니터와 디스크:** `persistent`가 아닌 모니터의 출력 로그는 상한이 있습니다(출력이 너무 커지면 종료됨). 하지만 `persistent` 모니터는 세션 내내 도는 것을 전제로 하므로 로그에 크기 상한이 **없습니다** — 장기 `tail -f`는 firehose 대신 필터링된 스트림에 걸고, 끝나면 `jobs action='kill'`로 중지하세요.
+
 ## 키보드 단축키
 
 손은 키보드 위에 그대로 두세요.

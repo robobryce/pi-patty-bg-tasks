@@ -119,6 +119,33 @@ agent_bg({ prompt: "重构 auth 模块" })
 | `prompt` | 后台代理的任务描述 |
 | `cwd` | 工作目录(默认:当前) |
 
+### monitor
+
+流式推送事件,而不是只等一次。`bash_bg`/`run_in_background` 在完成时通知**一次**,而 `monitor` 把进程变成**实时事件流**——每一行 stdout(或每个 WebSocket 帧)都会变成一条通知,直接送进代理的回合,代理则继续干活。这是 Claude Code 一分为二中的“流式”那一半:一次性的“完成时告诉我”交给 `run_in_background`,逐事件的“每次发生 X 都告诉我”交给 `monitor`。
+
+```js
+// 持续通知每一行错误
+monitor({ command: "tail -f deploy.log | grep --line-buffered -E 'ERROR|Traceback'", description: "deploy.log 中的错误" })
+
+// 每个 CI 检查到达时推送一条,运行结束时退出
+monitor({ command: "…会退出的轮询循环…", description: "PR 123 的 CI 检查" })
+
+// 订阅 WebSocket 数据流——每个文本帧即一个事件
+monitor({ ws: { url: "wss://events.example.com/stream" }, description: "部署事件", persistent: true })
+```
+
+| 参数 | 说明 |
+|------|------|
+| `command` | Shell 脚本;每行 stdout 即一个事件。与 `ws` 互斥。 |
+| `ws` | WebSocket 源 `{ url, protocols? }`;每个文本帧即一个事件。与 `command` 互斥。 |
+| `description` | 显示在每条通知上(请写得具体)。**必填。** |
+| `persistent` | 运行整个会话(无超时);用 `jobs action='kill'` 停止。默认 `false`。 |
+| `timeout_ms` | 终止该监视的截止时间(默认 `300000`,最大 `3600000`)。`persistent` 时忽略。 |
+
+监视器与后台工具共享同一套作业注册表、侧边栏(以 `◉` 标记)和 `jobs` 管理器——只有 stdout 是事件流(stderr 会捕获到单独的 `.err` 文件),输出按行缓冲,所以请用 `grep --line-buffered`/`awk fflush()`,**绝不要**用 `head`。一个疯狂刷事件的监视器会被自动停止,你可以用更严格的过滤器重新启动。`ws` 源需要带有全局 `WebSocket` 的运行时(Node 22+),否则请改用 `websocat` 之类的 `command`。
+
+> **持久监视器与磁盘:** 非 `persistent` 监视器的输出日志有上限(输出过大时会被终止)。但 `persistent` 监视器本就预期跑满整个会话,因此其日志**不**做大小限制——让长期运行的 `tail -f` 对准经过过滤的流而不是 firehose,用完后用 `jobs action='kill'` 停止。
+
 ## 键盘快捷键
 
 手别离开键盘。
