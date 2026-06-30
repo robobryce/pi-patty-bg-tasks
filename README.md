@@ -210,6 +210,12 @@ A live pill widget keeps your running jobs in view — each with its duration an
 
 ## Releases
 
+### 1.1.0 — Monitor tool & coalesced completions
+
+- **New `monitor` tool** — the streaming half of Claude Code's split: each stdout line (or WebSocket frame) becomes one notification as it happens. Use it for per-event streams (`tail -f | grep`, poll loops, file watches, ws feeds), while `run_in_background` keeps the one-shot "wait until done" case. Supports `command`/`ws` sources, `persistent` watches, a `timeout_ms` deadline, line-accurate following, and auto-stop on a firehose. Shows with a `◉` pill in the sidebar and `jobs` manager.
+- **No more wall of `[job-finished]` lines** — a burst of finishing background jobs now coalesces into a single summary notice instead of one stale line per job dumped after your next message.
+- Internals: `MonitorSession` extracted behind a `MonitorSource` seam (command + ws adapters), making the streaming/terminal lifecycle unit-testable. Zero new dependencies (ws uses the runtime's global `WebSocket`, Node 22+).
+
 ### 1.0.2 — Ctrl+B parity & friendlier jobs
 
 - **Ctrl+B** is now the primary background shortcut (Ctrl+Shift+B stays as an alias), with a live `(ctrl+b to run in background)` hint under the editor while a command runs — matching Claude Code. Inside tmux it shows the "(twice)" note.
