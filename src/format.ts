@@ -1,7 +1,8 @@
 /**
  * Formatting helpers — duration strings, status pills, output tails.
+ * The completion-notice renderer lives in src/notice.ts; this module is
+ * the primitives layer that notice.ts and the rest of the codebase share.
  */
-
 import type { Job } from "./types.ts";
 import { PREVIEW_CHARS } from "./types.ts";
 
@@ -50,7 +51,9 @@ export function truncateTail(content: string, maxChars: number): string {
     return `...[truncated, showing last ${maxChars} chars]\n${content.slice(-maxChars)}`;
 }
 
-/** Text content block builder — shared across all tools. */
+/** Text content block builder — shared across all tools. The explicit return
+ *  type documents the shared contract for the five tool call sites that
+ *  import this — they rely on the literal shape, not inference. */
 export function textBlock(s: string): { type: "text"; text: string } {
     return { type: "text" as const, text: s };
 }

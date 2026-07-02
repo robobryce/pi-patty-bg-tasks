@@ -14,6 +14,7 @@ import { type Job, type UiContext } from "../types.ts";
 interface Captured {
     customType: string;
     content: string;
+    level?: string;
     details?: { jobCount?: number; monitorCount?: number };
 }
 
@@ -52,11 +53,8 @@ void describe("notify — turn-boundary coalescing", () => {
         flushNotices(reg, pi as never, ctx);
         assert.equal(messages.length, 1);
         const c = messages[0].content;
-        assert.match(c, /^✓ tests \(/);
-        assert.match(
-            c,
-            /jobs\(\{ action: "output", jobId: "job-1-5" \}\)/
-        );
+        assert.match(c, /^✓ tests \(/m);
+        assert.ok(c.includes('jobId: "job-1-5"'));
     });
 
     void it("collapses a whole turn's finishes (spread out) into ONE summary at agent_end", () => {
@@ -78,16 +76,10 @@ void describe("notify — turn-boundary coalescing", () => {
         const c = messages[0].content;
         assert.match(c, /2 background jobs finished \(1 failed\)/);
         assert.match(c, /2 monitors ended/);
-        assert.match(c, /^✓ job-1-1 \(/m);
-        assert.match(c, /^✗ job-1-2 \(.*exit 1/m);
-        assert.match(
-            c,
-            /jobs\(\{ action: "output", jobId: "job-1-1" \}\)/
-        );
-        assert.match(
-            c,
-            /jobs\(\{ action: "output", jobId: "job-1-2" \}\)/
-        );
+        assert.match(c, /^✓ "npm test" \(/m);
+        assert.match(c, /^✗ "npm test" \(.*exit 1/m);
+        assert.ok(c.includes('jobId: "job-1-1"'));
+        assert.ok(c.includes('jobId: "job-1-2"'));
         assert.match(c, /◉ API health — stream ended/);
         assert.match(c, /◉ port 4000 — stopped \(timeout\)/);
     });
@@ -113,7 +105,7 @@ void describe("notify — turn-boundary coalescing", () => {
         const c = messages[0].content;
         assert.match(c, /2 background jobs finished/);
         // Each finished job carries its own nudge so the agent knows what to do next.
-        const nudges = c.split("\n").filter((l) => /^  → jobs\(\{ action: "output"/.test(l));
+        const nudges = c.split("\n").filter((l) => l.includes("jobs({ action: \"output\""));
         assert.equal(nudges.length, 2);
     });
 
@@ -138,18 +130,74 @@ void describe("notify — turn-boundary coalescing", () => {
         enqueueFinished(reg, pi as never, ctx, mkJob({ id: "job-1-2", status: "failed", exitCode: 2 }));
         flushNotices(reg, pi as never, ctx);
         const c = messages[0].content;
-        const nudges = c.split("\n").filter((l) => /^  → jobs\(\{ action: "output"/.test(l));
+        const nudges = c.split("\n").filter((l) => l.includes("jobs({ action: \"output\""));
         assert.equal(nudges.length, 2);
         assert.ok(nudges.some((n) => n.includes('"job-1-1"')));
         assert.ok(nudges.some((n) => n.includes('"job-1-2"')));
     });
 
-void it("a lone monitor end reads like one line", () => {
+    void it("a lone monitor end reads like one line", () => {
         const { reg, pi, ctx, messages } = harness();
         enqueueMonitorEnd(reg, pi as never, ctx, { description: "deploy", summary: "stream ended", failed: false });
         flushNotices(reg, pi as never, ctx);
         assert.equal(messages.length, 1);
         assert.match(messages[0].content, /◉ deploy — stream ended/);
+    });
+
+    void it("a killed job is reported without a nudge (intentional cleanup)", () => {
+        const { reg, pi, ctx, messages, notices } = harness();
+        enqueueFinished(reg, pi as never, ctx, mkJob({ id: "job-1-1", status: "killed" }));
+        flushNotices(reg, pi as never, ctx);
+        const c = messages[0].content;
+        assert.match(c, /^⊘ /m, "uses the kill glyph, not the failure glyph");
+        assert.match(c, /, killed/);
+        assert.equal(
+            c.split("\n").filter((l) => l.includes("jobs({ action: \"output\"")).length,
+            0,
+            "no nudge for a killed job"
+        );
+        assert.equal(notices[0].level, "info", "killed is not an error");
+    });
+
+    void it("a failed job without an exitCode is labeled clearly", () => {
+        const { reg, pi, ctx, messages } = harness();
+        enqueueFinished(reg, pi as never, ctx, mkJob({ id: "job-1-1", status: "failed" }));
+        flushNotices(reg, pi as never, ctx);
+        assert.match(messages[0].content, /^✗ /m);
+        assert.match(messages[0].content, /, failed\b/);
+    });
+
+    void it("an unnamed job shows a command preview, not just the id", () => {
+        const { reg, pi, ctx, messages } = harness();
+        enqueueFinished(
+            reg,
+            pi as never,
+            ctx,
+            mkJob({ id: "job-7-9", command: "npm run e2e --reporter=spec" })
+        );
+        flushNotices(reg, pi as never, ctx);
+        assert.match(messages[0].content, /npm run e2e/);
+    });
+
+    void it("1 job + 1 monitor is reported together (no silent drop)", () => {
+        const { reg, pi, ctx, messages } = harness();
+        enqueueFinished(reg, pi as never, ctx, mkJob({ id: "job-1-1" }));
+        enqueueMonitorEnd(reg, pi as never, ctx, { description: "deploy", summary: "stream ended", failed: false });
+        flushNotices(reg, pi as never, ctx);
+        const c = messages[0].content;
+        assert.match(c, /1 background job finished/);
+        assert.match(c, /1 monitor ended/);
+        assert.match(c, /✓ "npm test" \(/);
+        assert.match(c, /◉ deploy — stream ended/);
+    });
+
+    void it("monitor failures show up in the headline count", () => {
+        const { reg, pi, ctx, messages } = harness();
+        enqueueMonitorEnd(reg, pi as never, ctx, { description: "a", summary: "ok", failed: false });
+        enqueueMonitorEnd(reg, pi as never, ctx, { description: "b", summary: "died", failed: true });
+        enqueueMonitorEnd(reg, pi as never, ctx, { description: "c", summary: "ok", failed: false });
+        flushNotices(reg, pi as never, ctx);
+        assert.match(messages[0].content, /3 monitors ended \(1 failed\)/);
     });
 
     void it("does not enqueue a job whose output was already consumed", () => {

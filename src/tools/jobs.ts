@@ -38,6 +38,8 @@ import {
 } from "../lifecycle.ts";
 
 /** `jobs` 툴을 등록한다. */
+
+
 export function registerJobsTool(
     pi: ExtensionAPI,
     reg: BackgroundRegistry
@@ -56,7 +58,7 @@ export function registerJobsTool(
             "search: regex-search all job output",
             "cleanup: purge terminal jobs",
             "stats: show aggregate metrics",
-            "After a background job's completion notice, call action: 'output' (or 'list') to read its result before claiming the task is done.",
+            "After a background job's completion notice, call action: 'output' on it to read its result before claiming the task is done.",
         ],
         parameters: Type.Object({
             action: StringEnum(
