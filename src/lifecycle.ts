@@ -537,6 +537,26 @@ export function detectNonInteractive(
     return argv.includes("-p") || argv.includes("--print");
 }
 
+/**
+ * Resolve whether the current run is non-interactive, preferring Pi's
+ * authoritative UI signal (`ctx.hasUI`) over argv/TTY sniffing.
+ *
+ * A run is non-interactive exactly when there is no TUI — print/json mode, or a
+ * non-TTY stdin pipe. `ctx.hasUI` reflects that directly and is the same signal
+ * pi-subagents gates on, so both extensions agree on one definition. It also
+ * covers entry paths a bare `-p`/`--print` argv check misses (e.g. `pi --stream`
+ * piped from stdin, `--print=true`, or aliases). Falls back to argv/TTY
+ * detection only when `hasUI` is unavailable on the context.
+ */
+export function resolveNonInteractive(
+    hasUI: boolean | undefined,
+    argv: readonly string[],
+    stdinIsTTY: boolean
+): boolean {
+    if (typeof hasUI === "boolean") return !hasUI;
+    return detectNonInteractive(argv, stdinIsTTY);
+}
+
 // --- Cleanup -------------------------------------------------------------
 
 /**

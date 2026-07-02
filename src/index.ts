@@ -17,7 +17,7 @@ import { createBashToolDefinition } from "@earendil-works/pi-coding-agent";
 import { BackgroundRegistry } from "./state.ts";
 import {
     cleanupStaleRuntimeArtifacts,
-    detectNonInteractive,
+    resolveNonInteractive,
     reviveAndValidate,
     terminateJobSilently,
 } from "./lifecycle.ts";
@@ -92,9 +92,14 @@ export default function (pi: ExtensionAPI): void {
 
     // ── Session start ─────────────────────────────────────────────
     pi.on("session_start", async (_event, ctx) => {
-        reg.nonInteractive = detectNonInteractive(
+        // Use Pi's authoritative UI signal as the source of truth (see
+        // resolveNonInteractive): non-interactive exactly when there is no TUI.
+        // Matches pi-subagents' ctx.hasUI gate and covers entry paths argv
+        // sniffing misses (`pi --stream` piped, `--print=true`, aliases).
+        reg.nonInteractive = resolveNonInteractive(
+            (ctx as { hasUI?: boolean }).hasUI,
             process.argv,
-            Boolean(process.stdin.isTTY)
+            Boolean(process.stdin.isTTY),
         );
 
         // Restore serialized background job state.
