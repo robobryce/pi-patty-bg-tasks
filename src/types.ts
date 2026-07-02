@@ -51,7 +51,7 @@ export const PREVIEW_CHARS = {
 export type JobStatus = "running" | "completed" | "failed" | "killed";
 
 /** What kind of background job this is. "shell" is the default (bash/bash_bg/
- *  agent_bg); "monitor" is a streaming-event watch (the monitor tool). */
+ *  bash_bg); "monitor" is a streaming-event watch (the monitor tool). */
 export type JobKind = "shell" | "monitor";
 
 export interface Job {

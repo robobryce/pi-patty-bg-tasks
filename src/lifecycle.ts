@@ -43,7 +43,7 @@ export function assertJobSlot(reg: BackgroundRegistry): void {
  * Wire a background job's lifecycle: completion promise, abort controller,
  * stall watcher, and the exit→completeJob hand-off. The job must already be in
  * the registry. Returns the job's AbortController so callers can attach extra
- * monitors (e.g. agent_bg's progress poller).
+ * monitors (e.g. a job's progress poller).
  */
 export function startBackgroundJob(args: {
     reg: BackgroundRegistry;
@@ -92,7 +92,7 @@ export function startBackgroundJob(args: {
 /**
  * Standard completion flow after a job exits — abortJob → markTerminal →
  * notifyFinished → forget → renderSidebar. Shared by every tool's exit
- * callback (bash, bash_bg, agent_bg) as the canonical termination protocol.
+ * callback (bash, bash_bg) as the canonical termination protocol.
  */
 export function completeJob(args: {
     job: Job;
