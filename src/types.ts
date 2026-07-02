@@ -107,6 +107,28 @@ export const EVENT = {
     monitorEvent: "bg-monitor-event",
 } as const;
 
+/**
+ * pi.events bus channel emitted the instant a background job reaches a terminal
+ * state (completeJob), independent of the coalesced turn-boundary user notice.
+ * Other extensions (e.g. a `wait` tool) can subscribe to react in real time to
+ * a background bash/agent job finishing. Payload: BgTaskFinishedEvent.
+ */
+export const BG_TASK_FINISHED_EVENT = "patty:bg-task-finished";
+
+/** Payload emitted on BG_TASK_FINISHED_EVENT. */
+export interface BgTaskFinishedEvent {
+    jobId: string;
+    name?: string;
+    command: string;
+    status: JobStatus;
+    exitCode?: number;
+    pid: number;
+    kind: JobKind;
+    logPath: string;
+    startTime: number;
+    endedAt: number;
+}
+
 export type EventName = (typeof EVENT)[keyof typeof EVENT];
 
 // --- Deliver options ---
