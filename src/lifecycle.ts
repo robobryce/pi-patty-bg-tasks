@@ -11,6 +11,7 @@ import { readdir, stat, unlink } from "node:fs/promises";
 import { join as pathJoin } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
+    BG_TASK_FINISHED_EVENT,
     EVENT,
     MAX_CONCURRENT_JOBS,
     type Job,
@@ -105,6 +106,27 @@ export function completeJob(args: {
     const finished = args.job;
     abortJob(args.reg, finished.id);
     markTerminal(finished, statusFromExit(args.code), args.code ?? undefined);
+    // Emit a real-time bus event the instant the job is terminal (mid-turn, from
+    // the child's exit callback) — separate from the coalesced turn-boundary user
+    // notice. Lets other extensions (e.g. a `wait` tool) react immediately to a
+    // background job finishing. Best-effort: never let a subscriber throw break
+    // the termination protocol.
+    try {
+        args.pi.events.emit(BG_TASK_FINISHED_EVENT, {
+            jobId: finished.id,
+            name: finished.name,
+            command: finished.command,
+            status: finished.status,
+            exitCode: finished.exitCode,
+            pid: finished.pid,
+            kind: finished.kind ?? "shell",
+            logPath: finished.logPath,
+            startTime: finished.startTime,
+            endedAt: finished.endedAt ?? Date.now(),
+        });
+    } catch {
+        /* a bad subscriber must not break job completion */
+    }
     if (args.shouldNotify !== false) {
         notifyFinished({ job: finished, reg: args.reg, pi: args.pi, ctx: args.ctx });
     }
