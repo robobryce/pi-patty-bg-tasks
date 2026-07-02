@@ -56,6 +56,7 @@ export function registerJobsTool(
             "search: regex-search all job output",
             "cleanup: purge terminal jobs",
             "stats: show aggregate metrics",
+            "After a background job's completion notice, call action: 'output' (or 'list') to read its result before claiming the task is done.",
         ],
         parameters: Type.Object({
             action: StringEnum(

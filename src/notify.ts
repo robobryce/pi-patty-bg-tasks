@@ -25,7 +25,6 @@ import {
     type UiContext,
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
-import { LOG_DIR } from "./registry.ts";
 import { formatDuration } from "./format.ts";
 
 /** Queue a finished job for the next coalesced notice. */
@@ -158,57 +157,57 @@ function clearFlushTimer(reg: BackgroundRegistry): void {
 
 type Notice = { content: string; level: "info" | "error" };
 
-/** One notice → its single line; many → a grouped summary. */
+/** One notice → its single line; many → a counts head + per-job status+nudge. */
 function formatNotices(jobs: Job[], monitors: MonitorEnd[]): Notice {
     if (jobs.length + monitors.length === 1) {
         return jobs.length === 1 ? formatSingleJob(jobs[0]) : formatSingleMonitor(monitors[0]);
     }
 
-    const completed = jobs.filter((j) => j.status === "completed");
     const failed = jobs.filter((j) => j.status !== "completed");
-    const clauses: string[] = [];
-    if (completed.length > 0) {
-        clauses.push(`${completed.length} completed (${completed.map((j) => j.id).join(", ")})`);
-    }
-    if (failed.length > 0) {
-        const ids = failed
-            .map((j) => (j.exitCode !== undefined && j.exitCode !== 0 ? `${j.id} exit ${j.exitCode}` : j.id))
-            .join(", ");
-        clauses.push(`${failed.length} failed (${ids})`);
-    }
-    if (monitors.length > 0) {
-        clauses.push(
-            `${monitors.length} monitor${monitors.length > 1 ? "s" : ""} ended (${monitors.map((m) => m.description).join(", ")})`
+    const headParts: string[] = [];
+    if (jobs.length > 0) {
+        headParts.push(
+            failed.length > 0
+                ? `${jobs.length} background jobs finished (${failed.length} failed)`
+                : `${jobs.length} background jobs finished`
         );
     }
+    if (monitors.length > 0) {
+        headParts.push(`${monitors.length} monitor${monitors.length > 1 ? "s" : ""} ended`);
+    }
+    const head = headParts.join(". ");
 
-    const head =
-        jobs.length > 0 && monitors.length > 0
-            ? `${jobs.length + monitors.length} background events`
-            : jobs.length > 0
-              ? `${jobs.length} background jobs finished`
-              : `${monitors.length} monitors ended`;
+    const jobLines = jobs.flatMap((j) => [statusLine(j), nudgeLine(j)]);
+    const monitorLines = monitors.map((m) => `◉ ${m.description} — ${m.summary}`);
+
     const anyFailed = failed.length > 0 || monitors.some((m) => m.failed);
     return {
-        content: `${head} — ${clauses.join("; ")}. Outputs in ${LOG_DIR}/`,
+        content: [head, ...jobLines, ...monitorLines].join("\n"),
         level: anyFailed ? "error" : "info",
     };
 }
 
-/** The familiar single-job line, unchanged from the pre-coalescing behavior. */
-function formatSingleJob(job: Job): Notice {
+/** One short status line for a finished job — glyph, label, duration, id.
+ *  No nudge here; nudgeLine pairs with this in both single and multi-job
+ *  notices so the steering prompt can't be visually buried. */
+function statusLine(job: Job): string {
     const duration = formatDuration((job.endedAt ?? Date.now()) - job.startTime);
-    // Not jobLabel(): the id is appended separately below, so the label slot
-    // prefers the command over the id to stay human-readable.
-    const label = job.name ? `"${job.name}"` : `"${job.command.slice(0, 60)}"`;
-    const exitText =
-        job.exitCode !== undefined && job.exitCode !== 0 ? ` (exit ${job.exitCode})` : "";
-    const statusText =
-        job.status === "completed"
-            ? `Background bash ${label} completed in ${duration}`
-            : `Background bash ${label} ${job.status} in ${duration}${exitText}`;
+    const label = job.name ?? job.id;
+    const glyph = job.status === "completed" ? "✓" : "✗";
+    const exitPart =
+        job.exitCode !== undefined && job.exitCode !== 0 ? `, exit ${job.exitCode}` : "";
+    return `${glyph} ${label} (${duration}${exitPart}, ${job.id})`;
+}
+
+/** The steering line — the explicit tool call the agent should make next. */
+function nudgeLine(job: Job): string {
+    return `  → jobs({ action: "output", jobId: "${job.id}" })`;
+}
+
+/** The familiar single-job notice: status line + nudge on the line below. */
+function formatSingleJob(job: Job): Notice {
     return {
-        content: `${statusText} · ${job.id} · output: ${job.logPath}`,
+        content: `${statusLine(job)}\n${nudgeLine(job)}`,
         level: job.status === "completed" ? "info" : "error",
     };
 }

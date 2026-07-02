@@ -51,7 +51,12 @@ void describe("notify — turn-boundary coalescing", () => {
         enqueueFinished(reg, pi as never, ctx, mkJob({ id: "job-1-5", name: "tests" }));
         flushNotices(reg, pi as never, ctx);
         assert.equal(messages.length, 1);
-        assert.match(messages[0].content, /Background bash "tests" completed/);
+        const c = messages[0].content;
+        assert.match(c, /^✓ tests \(/);
+        assert.match(
+            c,
+            /jobs\(\{ action: "output", jobId: "job-1-5" \}\)/
+        );
     });
 
     void it("collapses a whole turn's finishes (spread out) into ONE summary at agent_end", () => {
@@ -71,10 +76,20 @@ void describe("notify — turn-boundary coalescing", () => {
 
         assert.equal(messages.length, 1, "one summary at the turn boundary");
         const c = messages[0].content;
-        assert.match(c, /4 background events/);
-        assert.match(c, /1 completed \(job-1-1\)/);
-        assert.match(c, /1 failed \(job-1-2 exit 1\)/);
-        assert.match(c, /2 monitors ended \(API health, port 4000\)/);
+        assert.match(c, /2 background jobs finished \(1 failed\)/);
+        assert.match(c, /2 monitors ended/);
+        assert.match(c, /^✓ job-1-1 \(/m);
+        assert.match(c, /^✗ job-1-2 \(.*exit 1/m);
+        assert.match(
+            c,
+            /jobs\(\{ action: "output", jobId: "job-1-1" \}\)/
+        );
+        assert.match(
+            c,
+            /jobs\(\{ action: "output", jobId: "job-1-2" \}\)/
+        );
+        assert.match(c, /◉ API health — stream ended/);
+        assert.match(c, /◉ port 4000 — stopped \(timeout\)/);
     });
 
     void it("does not flush mid-turn even past the idle window", async () => {
@@ -95,7 +110,11 @@ void describe("notify — turn-boundary coalescing", () => {
         assert.equal(messages.length, 0, "not flushed immediately");
         await new Promise((r) => setTimeout(r, 600));
         assert.equal(messages.length, 1, "one coalesced flush after the idle window");
-        assert.match(messages[0].content, /2 background jobs finished/);
+        const c = messages[0].content;
+        assert.match(c, /2 background jobs finished/);
+        // Each finished job carries its own nudge so the agent knows what to do next.
+        const nudges = c.split("\n").filter((l) => /^  → jobs\(\{ action: "output"/.test(l));
+        assert.equal(nudges.length, 2);
     });
 
     void it("noteAgentStart drains stranded notices (guard), then holds new ones for the turn", async () => {
@@ -113,7 +132,19 @@ void describe("notify — turn-boundary coalescing", () => {
         assert.equal(messages.length, 2);
     });
 
-    void it("a lone monitor end reads like one line", () => {
+    void it("every finished job line carries an output-read nudge", () => {
+        const { reg, pi, ctx, messages } = harness();
+        enqueueFinished(reg, pi as never, ctx, mkJob({ id: "job-1-1" }));
+        enqueueFinished(reg, pi as never, ctx, mkJob({ id: "job-1-2", status: "failed", exitCode: 2 }));
+        flushNotices(reg, pi as never, ctx);
+        const c = messages[0].content;
+        const nudges = c.split("\n").filter((l) => /^  → jobs\(\{ action: "output"/.test(l));
+        assert.equal(nudges.length, 2);
+        assert.ok(nudges.some((n) => n.includes('"job-1-1"')));
+        assert.ok(nudges.some((n) => n.includes('"job-1-2"')));
+    });
+
+void it("a lone monitor end reads like one line", () => {
         const { reg, pi, ctx, messages } = harness();
         enqueueMonitorEnd(reg, pi as never, ctx, { description: "deploy", summary: "stream ended", failed: false });
         flushNotices(reg, pi as never, ctx);
