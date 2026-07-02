@@ -23,6 +23,8 @@ import {
 } from "./lifecycle.ts";
 import { forget as forgetJob, stopSidebarTicker } from "./registry.ts";
 import { markLive } from "./shared-live.ts";
+import { registerWaitProvider } from "./wait-provider.ts";
+import { drainRunningJobs } from "./drain.ts";
 import { cancelPendingNotices, noteAgentEnd, noteAgentStart } from "./notify.ts";
 import {
     EVENT,
@@ -67,6 +69,11 @@ export default function (pi: ExtensionAPI): void {
     registerCommands(pi, reg);
     registerInputHandlers(pi, reg);
 
+    // ── wait integration ──────────────────────────────────────────
+    // Publish patty as a background-work provider so a `wait` tool blocks on our
+    // backgrounded bash/agent jobs (dependency-free; see wait-provider.ts).
+    registerWaitProvider();
+
     // ── Turn boundaries ───────────────────────────────────────────
     // Hold background notices while the agent is mid-turn and flush them as ONE
     // summary when the turn ends — so a long turn full of finishing jobs/monitors
@@ -76,6 +83,11 @@ export default function (pi: ExtensionAPI): void {
     });
     pi.on("agent_end", async (_event, ctx) => {
         noteAgentEnd(reg, pi, ctx as unknown as UiContext);
+        // Non-interactive turn-end drain: in a headless run there is no next turn
+        // to surface a job's completion, and session_shutdown would kill any
+        // still-running job. Block turn-end until outstanding jobs finish so work
+        // the model started but didn't wait for is not discarded.
+        if (reg.nonInteractive) await drainRunningJobs(reg);
     });
 
     // ── Session start ─────────────────────────────────────────────
