@@ -22,6 +22,7 @@ import {
     terminateJobSilently,
 } from "./lifecycle.ts";
 import { forget as forgetJob, stopSidebarTicker } from "./registry.ts";
+import { markLive } from "./shared-live.ts";
 import { cancelPendingNotices, noteAgentEnd, noteAgentStart } from "./notify.ts";
 import {
     EVENT,
@@ -110,6 +111,9 @@ export default function (pi: ExtensionAPI): void {
                         forgetJob(reg, job);
                     } else {
                         reg.jobs.set(id, job);
+                        // Keep the cross-extension live set consistent after a
+                        // same-process reload that revived a still-running job.
+                        markLive(id);
                     }
                 }
             }

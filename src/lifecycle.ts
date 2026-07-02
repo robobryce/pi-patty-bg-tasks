@@ -21,6 +21,7 @@ import {
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
 import { killProcessTree, processExists } from "./spawn.ts";
+import { clearLive } from "./shared-live.ts";
 import { LOG_DIR, atConcurrencyLimit, forget, renderSidebar } from "./registry.ts";
 import { watchStalls } from "./monitoring.ts";
 import { enqueueFinished } from "./notify.ts";
@@ -154,6 +155,10 @@ export function markTerminal(
     job.status = status;
     job.exitCode = exitCode;
     delete job.proc;
+    // Drop from the cross-extension live-jobs set (see shared-live.ts). Single
+    // choke point for every terminal transition (complete/fail/kill), so a
+    // `wait` tool reading the set never sees a stale in-flight job.
+    clearLive(job.id);
     if (job.resolveDone) {
         job.resolveDone();
         delete job.resolveDone;
