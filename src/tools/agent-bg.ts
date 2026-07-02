@@ -22,7 +22,7 @@ import {
 import { add, createRunningJob, nextJobId, logPathFor } from "../registry.ts";
 import { spawnWithFileOutput, type SpawnResult } from "../spawn.ts";
 import { streamLog } from "../output.ts";
-import { textBlock } from "../format.ts";
+import { textBlock, backgroundReminder } from "../format.ts";
 
 /** Resolve the full path to the pi binary, memoised for the session. */
 let cachedPiBinary: string | undefined;
@@ -159,7 +159,8 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
             return {
                 content: [textBlock(
                     `Agent running in background with ID: ${id}. Output is being written to: ${logPath}\n` +
-                    `Prompt: ${p.prompt.slice(0, 100)}${p.prompt.length > 100 ? "…" : ""}`
+                    `Prompt: ${p.prompt.slice(0, 100)}${p.prompt.length > 100 ? "…" : ""}` +
+                    backgroundReminder(reg.nonInteractive)
                 )],
                 details: undefined,
             };

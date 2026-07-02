@@ -48,7 +48,7 @@ import {
     requireExistingCwd,
     startBackgroundJob,
 } from "../lifecycle.ts";
-import { textBlock } from "../format.ts";
+import { textBlock, backgroundReminder } from "../format.ts";
 import { bashParamSchema } from "./bash-params.ts";
 
 /** UI context + cwd is all this tool needs from the host context. */
@@ -294,7 +294,8 @@ async function runForeground(args: {
             return {
                 content: [
                     textBlock(
-                        `Process backgrounded as ${id}\nCommand: ${command}\nPID: ${spawned.pid}\nOutput: ${logPath}`
+                        `Process backgrounded as ${id}\nCommand: ${command}\nPID: ${spawned.pid}\nOutput: ${logPath}` +
+                        backgroundReminder(reg.nonInteractive)
                     ),
                 ],
                 details: undefined,
@@ -352,7 +353,8 @@ function spawnBackground(args: {
             textBlock(
                 `Command running in background with ID: ${id}.${
                     args.name ? ` Name: ${args.name}.` : ""
-                } Output is being written to: ${logPath}`
+                } Output is being written to: ${logPath}` +
+                backgroundReminder(args.reg.nonInteractive)
             ),
         ],
         details: undefined,
