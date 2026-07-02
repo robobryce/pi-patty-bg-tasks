@@ -1,12 +1,11 @@
 /**
  * pi-patty-bg-tasks — background task extension for the pi agent.
  *
- * Registers six tools:
+ * Registers five tools:
  *   - bash (override)
  *   - bash_bg
  *   - jobs
  *   - job_decide
- *   - agent_bg
  *   - monitor (streaming-event watch)
  *
  * Also registers keyboard shortcuts and slash commands.
@@ -36,7 +35,6 @@ import { registerBashTool } from "./tools/bash.ts";
 import { registerBashBgTool } from "./tools/bash-bg.ts";
 import { registerJobsTool } from "./tools/jobs.ts";
 import { registerJobDecideTool } from "./tools/job-decide.ts";
-import { registerAgentBgTool } from "./tools/agent-bg.ts";
 import { registerMonitorTool } from "./tools/monitor.ts";
 import { registerShortcuts } from "./shortcuts.ts";
 import { registerCommands } from "./commands.ts";
@@ -61,7 +59,6 @@ export default function (pi: ExtensionAPI): void {
     registerBashBgTool(pi, reg);
     registerJobsTool(pi, reg);
     registerJobDecideTool(pi, reg);
-    registerAgentBgTool(pi, reg);
     registerMonitorTool(pi, reg);
 
     // ── Shortcuts / commands ──────────────────────────────────────
@@ -72,7 +69,7 @@ export default function (pi: ExtensionAPI): void {
     // ── wait integration ──────────────────────────────────────────
     // Publish patty as a background-work provider so a `wait` tool blocks on our
     // backgrounded bash/agent jobs (dependency-free; see wait-provider.ts).
-    registerWaitProvider();
+    registerWaitProvider(reg);
 
     // ── Turn boundaries ───────────────────────────────────────────
     // Hold background notices while the agent is mid-turn and flush them as ONE

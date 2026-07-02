@@ -2,7 +2,7 @@
  * Every "started/moved to background" message must carry the wait-reminder so
  * the model knows the job isn't done and how to collect its result. Covers all
  * four backgrounding paths: bash explicit run_in_background, bash auto-background
- * on timeout, bash_bg, and agent_bg. Also pins the mode-specific caveat wording.
+ * on timeout, and bash_bg. Also pins the mode-specific caveat wording.
  */
 
 import { describe, it, after } from "node:test";
