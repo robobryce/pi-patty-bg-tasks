@@ -17,6 +17,7 @@ import {
     type UiContext,
 } from "./types.ts";
 import type { BackgroundRegistry } from "./state.ts";
+import { markLive } from "./shared-live.ts";
 import { readBoundedTail, readLastLine } from "./output.ts";
 
 // --- ID generation -------------------------------------------------------
@@ -79,6 +80,7 @@ export function markStarted(reg: BackgroundRegistry): void {
 export function add(reg: BackgroundRegistry, job: Job): Job {
     reg.jobs.set(job.id, job);
     markStarted(reg);
+    if (job.status === "running") markLive(job.id);
     return job;
 }
 
