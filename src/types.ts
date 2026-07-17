@@ -56,6 +56,8 @@ export type JobKind = "shell" | "monitor";
 
 export interface Job {
     id: string;
+    /** Pi session identity that owns this background job. */
+    sessionId?: string;
     name?: string;
     command: string;
     pid: number;

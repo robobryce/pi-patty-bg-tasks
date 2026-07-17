@@ -78,6 +78,9 @@ export function markStarted(reg: BackgroundRegistry): void {
 
 /** Add a brand-new running job and count it as started. */
 export function add(reg: BackgroundRegistry, job: Job): Job {
+    if (!job.sessionId && reg.currentSessionId) {
+        job.sessionId = reg.currentSessionId;
+    }
     reg.jobs.set(job.id, job);
     markStarted(reg);
     if (job.status === "running") markLive(job.id);

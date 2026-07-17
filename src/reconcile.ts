@@ -39,6 +39,8 @@ export interface ReconcileDeps {
     isAlive?: (pid: number | undefined) => boolean;
     /** Last-output-activity timestamp for a job; injectable for tests. */
     lastActivityMs?: (job: Job) => number;
+    /** Optional job filter, used by provider-scoped reconciliation. */
+    shouldReconcile?: (job: Job) => boolean;
 }
 
 /**
@@ -58,7 +60,9 @@ export function reconcileJobs(
     const lastActivity = deps.lastActivityMs ?? defaultLastActivity;
 
     // Snapshot: termination mutates the map.
-    const running = [...reg.jobs.values()].filter((j) => j.status === "running");
+    const running = [...reg.jobs.values()].filter((j) =>
+        j.status === "running" && (deps.shouldReconcile?.(j) ?? true)
+    );
     for (const job of running) {
         // Monitors are long-lived by design (they tail a stream); never treat a
         // quiet monitor as wedged.
