@@ -46,6 +46,15 @@ interface PersistedState {
     jobCounter?: number;
 }
 
+interface SessionIdentityManager {
+    getSessionFile?: () => string | null | undefined;
+    getSessionId?: () => string | null | undefined;
+}
+
+function resolveCurrentSessionId(sessionManager: SessionIdentityManager): string | undefined {
+    return sessionManager.getSessionFile?.() ?? sessionManager.getSessionId?.() ?? undefined;
+}
+
 /** Extension entry point. */
 export default function (pi: ExtensionAPI): void {
     const reg = new BackgroundRegistry();
@@ -89,6 +98,8 @@ export default function (pi: ExtensionAPI): void {
 
     // ── Session start ─────────────────────────────────────────────
     pi.on("session_start", async (_event, ctx) => {
+        reg.currentSessionId = resolveCurrentSessionId(ctx.sessionManager as SessionIdentityManager);
+
         // Use Pi's authoritative UI signal as the source of truth (see
         // resolveNonInteractive): non-interactive exactly when there is no TUI.
         // Matches pi-subagents' ctx.hasUI gate and covers entry paths argv
@@ -119,6 +130,7 @@ export default function (pi: ExtensionAPI): void {
         if (latest) {
             if (latest.jobs) {
                 for (const [id, job] of latest.jobs) {
+                    job.sessionId ??= reg.currentSessionId;
                     reviveAndValidate(reg, job);
                     if (job.status !== "running") {
                         // Not alive — fold into the counter and drop from the map.

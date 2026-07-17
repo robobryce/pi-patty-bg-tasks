@@ -92,4 +92,20 @@ void describe("reconcileJobs", () => {
         reconcileJobs(reg, { isAlive: () => false });
         assert.equal(liveJobCount(), before, "wait's live count drops after reconcile");
     });
+
+    void it("can scope reconciliation to jobs owned by one session", () => {
+        const reg = new BackgroundRegistry();
+        const target = runningJob("target", { sessionId: "session-a" });
+        const other = runningJob("other", { sessionId: "session-b" });
+        register(reg, target);
+        register(reg, other);
+
+        reconcileJobs(reg, {
+            isAlive: () => false,
+            shouldReconcile: (job) => job.sessionId === "session-a",
+        });
+
+        assert.notEqual(target.status, "running");
+        assert.equal(other.status, "running");
+    });
 });
