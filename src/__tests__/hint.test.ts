@@ -60,6 +60,17 @@ void describe("background hint", () => {
         });
     });
 
+    void it("shows the Ctrl+Shift+B alias when Ctrl+B is disabled", () => {
+        withTmux("/tmp/tmux-1/default,123,0", () => {
+            const { calls, ctx } = makeCtx();
+            showBackgroundHint(ctx, true);
+            const line = calls[0].content?.[0] ?? "";
+            assert.match(line, /ctrl\+shift\+b to run in background/);
+            assert.ok(!/twice/.test(line));
+            clearBackgroundHint(ctx);
+        });
+    });
+
     void it("ref-counts: stays up until the last parallel command clears", () => {
         const { calls, ctx } = makeCtx();
         showBackgroundHint(ctx); // 0 -> 1: renders

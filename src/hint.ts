@@ -18,21 +18,27 @@ const HINT_KEY = "bg-hint";
 let activeHints = 0;
 
 /**
- * The key to press to background, as shown in the hint. Inside a tmux session
- * `ctrl+b` is tmux's prefix key, so it must be pressed twice — Claude Code
- * shows the same "(twice)" note.
+ * The key to press to background, as shown in the hint. When Ctrl+B is disabled,
+ * advertise the Ctrl+Shift+B alias instead. Otherwise, inside a tmux session,
+ * `ctrl+b` is the prefix key and must be pressed twice.
  */
-function backgroundHintLabel(): string {
+function backgroundHintLabel(disableCtrlBShortcut: boolean): string {
+    if (disableCtrlBShortcut) {
+        return "ctrl+shift+b to run in background";
+    }
     return process.env.TMUX
         ? "ctrl+b ctrl+b (twice) to run in background"
         : "ctrl+b to run in background";
 }
 
 /** Show the background hint below the editor (idempotent across parallel commands). */
-export function showBackgroundHint(ctx: UiContext): void {
+export function showBackgroundHint(
+    ctx: UiContext,
+    disableCtrlBShortcut = false
+): void {
     activeHints++;
     if (activeHints === 1) {
-        ctx.ui.setWidget(HINT_KEY, [`(${backgroundHintLabel()})`], {
+        ctx.ui.setWidget(HINT_KEY, [`(${backgroundHintLabel(disableCtrlBShortcut)})`], {
             placement: "belowEditor",
         });
     }

@@ -275,9 +275,9 @@ async function runForeground(args: {
         }
 
         // Still running past the quick window — start progress polling and show
-        // the "(ctrl+b to run in background)" hint, like Claude Code.
+        // the manual-background shortcut hint, like Claude Code.
         progressPoller = streamLog(logPath, onUpdate);
-        showBackgroundHint(ctx);
+        showBackgroundHint(ctx, reg.disableCtrlBShortcut);
         hintShown = true;
 
         // Race: completion vs backgrounding.

@@ -5,8 +5,20 @@
  */
 
 import type { Job, ForegroundSlot, MonitorEnd } from "./types.ts";
+import { isCtrlBShortcutDisabled } from "./config.ts";
+
+interface BackgroundRegistryOptions {
+    disableCtrlBShortcut?: boolean;
+}
 
 export class BackgroundRegistry {
+    readonly disableCtrlBShortcut: boolean;
+
+    constructor(options: BackgroundRegistryOptions = {}) {
+        this.disableCtrlBShortcut =
+            options.disableCtrlBShortcut ?? isCtrlBShortcutDisabled();
+    }
+
     jobs = new Map<string, Job>();
     currentSessionId: string | undefined;
     foreground = new Map<string, ForegroundSlot>();

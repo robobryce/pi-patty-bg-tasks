@@ -32,6 +32,13 @@ pi install git:github.com/patty-io/pi-patty-bg-tasks
 
 Needs Pi v0.37+. That's the only requirement — there are **no external dependencies** and **no tmux**. Background jobs run as plain Node.js child processes with their output piped straight to a file descriptor. Nothing to install, nothing to babysit.
 
+## Configuration
+
+Set `PI_PATTY_BG_TASKS_DISABLE_CTRL_B=1` before launching Pi to leave Pi's
+built-in Ctrl+B cursor-left shortcut untouched. Ctrl+Shift+B remains available
+for manually backgrounding the current process, and the live hint updates to
+show that binding. The option also accepts `true`, `yes`, or `on`.
+
 ## Why You'll Want This
 
 **Blocked sessions are over.** Dev servers, test suites, builds — anything still chugging after 120 seconds gets quietly moved to the background. The agent gets a heads-up and carries on with the next thing instead of staring at a spinner. Want it gone sooner? Background any command by hand, any time.

@@ -22,13 +22,15 @@ export function registerShortcuts(
     pi: ExtensionAPI,
     reg: BackgroundRegistry
 ): void {
-    // Primary background shortcut — Ctrl+B, matching Claude Code. Inside a tmux
-    // session Ctrl+B is tmux's prefix key and must be pressed twice; the live
-    // hint shown while a command runs says so.
-    pi.registerShortcut("ctrl+b", {
-        description: "Background the current foreground process",
-        handler: async (ctx) => handleCtrlB(reg, pi, ctx),
-    });
+    if (!reg.disableCtrlBShortcut) {
+        // Primary background shortcut — Ctrl+B, matching Claude Code. Inside a
+        // tmux session Ctrl+B is the prefix key and must be pressed twice; the
+        // live hint shown while a command runs says so.
+        pi.registerShortcut("ctrl+b", {
+            description: "Background the current foreground process",
+            handler: async (ctx) => handleCtrlB(reg, pi, ctx),
+        });
+    }
 
     // Alias for muscle memory / terminals that remap Ctrl+B.
     pi.registerShortcut("ctrl+shift+b", {
